@@ -56,7 +56,7 @@ app.get("/", (req, res) =>
 ======================= */
 app.use("/api/auth", authRoutes);
 app.use("/api/superadmin", superAdminRoutes);
-app.use("/api/clients", clientRoutes);
+app.use("/api/clients-admin", clientRoutes);
 app.use("/api/sites", siteRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/vendors", vendorRoutes);

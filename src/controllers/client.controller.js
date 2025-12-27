@@ -87,6 +87,11 @@
 // };
 
 import Client from "../models/Client.model.js";
+import ProjectManager from "../models/ProjectManager.model.js";
+import Supervisor from "../models/supervisor.model.js";
+import Site from "../models/Site.model.js";
+import Device from "../models/Device.model.js";
+import Trip from "../models/Trip.model.js";
 import { hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 
@@ -195,6 +200,213 @@ export const toggleClient = async (req, res, next) => {
     });
 
     res.json(client);
+  } catch (err) {
+    next(err);
+  }
+};
+export const getClientDashboard = async (req, res, next) => {
+  try {
+    // 🔥 SAFETY CHECK
+    if (!req.user) {
+      return res.status(401).json({
+        message: "User not authenticated",
+      });
+    }
+
+    if (!req.user.clientId) {
+      return res.status(400).json({
+        message: "ClientId missing in token",
+      });
+    }
+
+    const clientId = req.user.clientId;
+
+    const stats = {
+      totalSites: await Site.countDocuments({ clientId }),
+      projectManagers: await ProjectManager.countDocuments({ clientId }),
+      supervisors: await Supervisor.countDocuments({ clientId }),
+      devices: await Device.countDocuments({ clientId }),
+    };
+
+    res.json(stats);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const createProjectManager = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        message: "User not authenticated",
+      });
+    }
+
+    if (!["client", "admin"].includes(req.user.role)) {
+      return res.status(403).json({
+        message: "Access denied",
+      });
+    }
+
+    if (!req.user.clientId) {
+      return res.status(400).json({
+        message: "ClientId missing in token",
+      });
+    }
+
+    const { name, email, mobile, password, assignedSites } = req.body;
+
+    const pm = await ProjectManager.create({
+      name,
+      email,
+      mobile,
+      password: await hashPassword(password),
+      assignedSites: assignedSites || [],
+      clientId: req.user.clientId,
+      createdBy: req.user.id,
+    });
+
+    res.status(201).json(pm);
+  } catch (err) {
+    next(err);
+  }
+};
+
+
+
+export const getUsers = async (req, res) => {
+  const clientId = req.user.clientId;
+
+  const managers = await ProjectManager.find({ clientId }).select("-password");
+  const supervisors = await Supervisor.find({ clientId }).select("-password");
+
+  res.json({ managers, supervisors });
+};
+
+export const createSite = async (req, res) => {
+  const site = await Site.create({
+    ...req.body,
+    clientId: req.user.clientId,
+    createdBy: req.user.id,
+  });
+
+  res.status(201).json(site);
+};
+export const getSites = async (req, res, next) => {
+  try {
+    // 🔐 safety check
+    if (!req.user || !req.user.clientId) {
+      return res.status(401).json({
+        message: "Unauthorized or clientId missing",
+      });
+    }
+
+    const sites = await Site.find({ clientId: req.user.clientId })
+      .sort({ createdAt: -1 });
+
+    res.json({
+      count: sites.length,
+      data: sites,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+
+export const toggleUser = async (req, res) => {
+  const user = await ProjectManager.findById(req.params.id);
+  user.isActive = !user.isActive;
+  await user.save();
+  res.json(user);
+};
+export const getDevices = async (req, res) => {
+  const devices = await Device.find({ clientId: req.user.clientId });
+  res.json(devices);
+};
+export const getReports = async (req, res) => {
+  const reports = await Trip.find({ clientId: req.user.clientId });
+  res.json(reports);
+};
+export const createSupervisor = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.clientId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { name, email, mobile, password, siteId } = req.body;
+
+    const supervisor = await Supervisor.create({
+      name,
+      email,
+      mobile,
+      password: await hashPassword(password),
+      siteId,
+      clientId: req.user.clientId,
+      createdBy: req.user.id,
+    });
+
+    res.status(201).json(supervisor);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * GET ALL SUPERVISORS (Client Admin)
+ */
+export const getSupervisors = async (req, res, next) => {
+  try {
+    // 🔐 Safety checks
+    if (!req.user || !req.user.clientId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const clientId = req.user.clientId;
+
+    const supervisors = await Supervisor.find({ clientId })
+      .populate("siteId", "name")   // optional
+      .select("-password")
+      .sort({ createdAt: -1 });
+
+    res.json({
+      count: supervisors.length,
+      supervisors,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+export const getMyProfile = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        message: "User not authenticated",
+      });
+    }
+
+    let profile;
+
+    // 👤 CLIENT ADMIN
+    if (req.user.role === "client") {
+      profile = await Client.findById(req.user.id).select("-password");
+    }
+
+    // 👤 SYSTEM ADMIN (optional support)
+    if (req.user.role === "admin") {
+      profile = await Admin.findById(req.user.id).select("-password");
+    }
+
+    if (!profile) {
+      return res.status(404).json({
+        message: "Profile not found",
+      });
+    }
+
+    res.json({
+      role: req.user.role,
+      data: profile,
+    });
   } catch (err) {
     next(err);
   }

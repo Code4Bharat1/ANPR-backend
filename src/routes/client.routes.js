@@ -20,7 +20,18 @@ import {
   createClient,
   getClients,
   updateClient,
-  toggleClient
+  toggleClient,
+  getClientDashboard,
+  createProjectManager,
+  getUsers,
+  createSite,
+  getDevices,
+  getReports,
+  createSupervisor,
+  getSupervisors,
+  getSites,
+  getMyProfile
+
 } from "../controllers/client.controller.js";
 
 const router = express.Router();
@@ -71,6 +82,58 @@ router.patch(
   verifyAccessToken,
   authorizeRoles("superadmin"),
   toggleClient
+);
+
+router.get(
+  "/dashboard",
+  verifyAccessToken,              // 🔥 MUST
+  authorizeRoles("client", "admin"),
+  getClientDashboard
+);
+
+
+router.post(
+  "/project-managers",
+  verifyAccessToken,                    // 🔥 MUST
+  authorizeRoles("client", "admin"),    // 🔥 MUST
+  createProjectManager
+);
+router.get("/users", getUsers
+  
+);
+router.post(
+  "/sites",
+  verifyAccessToken,
+  authorizeRoles("client", "admin"),
+  createSite
+);
+
+router.get(
+  "/sites",
+  verifyAccessToken,
+  authorizeRoles("client", "admin"),
+  getSites
+);
+router.get("/devices", 
+  verifyAccessToken,
+  authorizeRoles("client", "admin"),
+  getDevices);
+router.get("/reports", verifyAccessToken,
+  authorizeRoles("client", "admin"),getReports);
+router.post("/supervisors", verifyAccessToken,                    // 🔥 MUST
+  authorizeRoles("client", "admin"), createSupervisor);
+router.get("/supervisors", verifyAccessToken,                    // 🔥 MUST
+  authorizeRoles("client", "admin"), getSupervisors);
+
+/**
+ * GET MY PROFILE
+ * /api/clients-admin/profile
+ */
+router.get(
+  "/profile",
+  verifyAccessToken,
+  authorizeRoles("client", "admin"),
+  getMyProfile
 );
 
 export default router;

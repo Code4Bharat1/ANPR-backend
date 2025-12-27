@@ -177,7 +177,9 @@ export const login = async (req, res, next) => {
     const { email, password, role } = req.body;
 
     if (!email || !password || !role) {
-      return res.status(400).json({ message: "Email, password and role required" });
+      return res.status(400).json({
+        message: "Email, password and role required",
+      });
     }
 
     const Model = ROLE_MODEL_MAP[role];
@@ -185,7 +187,8 @@ export const login = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid role" });
     }
 
-    const user = await Model.findOne({ email });
+    // 🔥 fetch password explicitly
+    const user = await Model.findOne({ email }).select("+password");
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
@@ -195,16 +198,25 @@ export const login = async (req, res, next) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
+    // 🔥 CORRECT clientId LOGIC
+    let clientId = null;
+
+    if (user.role === "client") {
+      clientId = user._id;               // Client Admin
+    } else if (user.clientId) {
+      clientId = user.clientId;          // Admin / PM / Supervisor
+    }
+
     const payload = {
       id: user._id,
       role: user.role,
-      clientId: user.clientId || null,
+      clientId,
     };
 
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
-    // optional: rotate tokens
+    // rotate old tokens
     await RefreshToken.deleteMany({ userId: user._id });
 
     await RefreshToken.create({
@@ -220,6 +232,9 @@ export const login = async (req, res, next) => {
       newValue: { email: user.email, role: user.role },
     });
 
+    // never expose password
+    user.password = undefined;
+
     res.json({
       accessToken,
       refreshToken,
@@ -227,6 +242,7 @@ export const login = async (req, res, next) => {
         id: user._id,
         email: user.email,
         role: user.role,
+        clientId,
       },
     });
   } catch (err) {
