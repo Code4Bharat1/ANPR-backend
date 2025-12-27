@@ -7,6 +7,8 @@ const siteSchema = new mongoose.Schema(
     siteCode: String,
     isActive: { type: Boolean, default: true },
     clientId: { type: mongoose.Schema.Types.ObjectId, ref: "Client" },
+     supervisors: [{ type: mongoose.Schema.Types.ObjectId, ref: "Supervisor" }],
+    projectManagers: [{ type: mongoose.Schema.Types.ObjectId, ref: "ProjectManager" }],
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", }
   },
   { timestamps: true }

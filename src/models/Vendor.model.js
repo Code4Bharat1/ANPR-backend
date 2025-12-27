@@ -5,6 +5,7 @@ const schema = new mongoose.Schema(
     clientId: { type: mongoose.Schema.Types.ObjectId, ref: "Client", required: true },
     name: { type: String, required: true },
     phone: String,
+    assignedSites: [{ type: mongoose.Schema.Types.ObjectId, ref: "Site" }],
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

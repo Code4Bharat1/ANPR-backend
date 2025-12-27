@@ -15,6 +15,8 @@ import deviceRoutes from "./src/routes/device.routes.js";
 import tripRoutes from "./src/routes/trip.routes.js";
 import reportRoutes from "./src/routes/report.routes.js";
 import superAdminRoutes from "./src/routes/superadmin.routes.js";
+import projectRoutes from "./src/routes/projectManager.routes.js";
+import supervisorRoutes from "./src/routes/supervisor.routes.js";
 
 // Models (for retention cleanup)
 import Trip from "./src/models/Trip.model.js";
@@ -61,7 +63,8 @@ app.use("/api/vendors", vendorRoutes);
 app.use("/api/devices", deviceRoutes);
 app.use("/api/trips", tripRoutes);
 app.use("/api/reports", reportRoutes);
-
+app.use("/api/project",projectRoutes);
+app.use("/api/supervisor",supervisorRoutes);
 /* =======================
    Error Middleware
 ======================= */

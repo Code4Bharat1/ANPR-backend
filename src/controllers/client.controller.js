@@ -1,24 +1,46 @@
 import Client from "../models/Client.model.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 
+const generateClientCode = async () => {
+  let code;
+  let exists = true;
+
+  while (exists) {
+    code = "CL-" + Math.floor(100000 + Math.random() * 900000);
+    exists = await Client.findOne({ clientCode: code });
+  }
+  return code;
+};
+
 export const createClient = async (req, res, next) => {
   try {
-    const { companyName, packageStart, packageEnd } = req.body;
+    const {
+      companyName,
+      email,
+      password,
+      packageStart,
+      packageEnd
+    } = req.body;
+
+    const clientCode = await generateClientCode();
 
     const client = await Client.create({
       companyName,
+      email,
+      password,
+      role: "client",          // ✅ force role
       packageStart,
       packageEnd,
+      clientCode,
       createdBy: req.user.id,
     });
-
-    await logAudit({ req, action: "CREATE", module: "CLIENT", newValue: client });
 
     res.status(201).json(client);
   } catch (e) {
     next(e);
   }
 };
+
 
 export const getClients = async (req, res, next) => {
   try {

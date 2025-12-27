@@ -6,7 +6,7 @@ import { createVendor, getVendors, updateVendor } from "../controllers/vendor.co
 const router = express.Router();
 
 router.post("/", verifyAccessToken, authorizeRoles("project_manager"), createVendor);
-router.get("/", verifyAccessToken, authorizeRoles("project_manager", "supervisor", "admin"), getVendors);
+router.get("/", verifyAccessToken, authorizeRoles("project_manager", "supervisor", "admin","client"), getVendors);
 router.put("/:id", verifyAccessToken, authorizeRoles("project_manager"), updateVendor);
 
 export default router;

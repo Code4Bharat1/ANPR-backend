@@ -4,10 +4,22 @@ import { comparePassword, hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 import SuperAdmin from "../models/superadmin.model.js"; 
 const getModelByRole = async (role) => {
-  if (role === "superadmin") return (await import("../models/superadmin.model.js")).default;
-  if (role === "admin") return (await import("../models/admin.model.js")).default;
-  if (role === "project_manager") return (await import("../models/ProjectManager.model.js")).default;
-  if (role === "supervisor") return (await import("../models/supervisor.model.js")).default;
+  if (role === "superadmin") {
+    return (await import("../models/superadmin.model.js")).default;
+  }
+
+  if (role === "admin" || role === "client") {
+    return (await import("../models/Client.model.js")).default;
+  }
+
+  if (role === "project_manager") {
+    return (await import("../models/ProjectManager.model.js")).default;
+  }
+
+  if (role === "supervisor") {
+    return (await import("../models/supervisor.model.js")).default;
+  }
+
   return null;
 };
 
@@ -16,15 +28,27 @@ export const login = async (req, res, next) => {
     const { email, password, role } = req.body;
 
     const Model = await getModelByRole(role);
-    if (!Model) return res.status(400).json({ message: "Invalid role" });
+    if (!Model) {
+      return res.status(400).json({ message: "Invalid role" });
+    }
 
-    const user = await Model.findOne({ email });
-    if (!user) return res.status(401).json({ message: "Invalid credentials" });
+    // 🔥 IMPORTANT FIX HERE
+    const user = await Model.findOne({ email }).select("+password");
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
 
     const ok = await comparePassword(password, user.password);
-    if (!ok) return res.status(401).json({ message: "Invalid credentials" });
+    if (!ok) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
 
-    const payload = { id: user._id, role: user.role, clientId: user.clientId || null };
+    const payload = {
+      id: user._id,
+      role: user.role,
+      clientId: user.clientId || null,
+    };
+
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
@@ -35,17 +59,20 @@ export const login = async (req, res, next) => {
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
-    await logAudit({ req, action: "LOGIN", module: "AUTH", newValue: { role, email } });
-
     res.json({
       accessToken,
       refreshToken,
-      user: { id: user._id, role: user.role, name: user.name, email: user.email, clientId: user.clientId || null },
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+      },
     });
   } catch (e) {
     next(e);
   }
 };
+
 
 export const refresh = async (req, res, next) => {
   try {

@@ -5,9 +5,9 @@ import { createSite, getSites, updateSite, toggleSite } from "../controllers/sit
 
 const router = express.Router();
 
-router.post("/", verifyAccessToken, authorizeRoles("admin"), createSite);
-router.get("/", verifyAccessToken, authorizeRoles("admin", "project_manager", "supervisor"), getSites);
-router.put("/:id", verifyAccessToken, authorizeRoles("admin"), updateSite);
-router.patch("/:id/toggle", verifyAccessToken, authorizeRoles("admin"), toggleSite);
+router.post("/", verifyAccessToken, authorizeRoles("admin","client"), createSite);
+router.get("/", verifyAccessToken, authorizeRoles("admin","client", "project_manager", "supervisor"), getSites);
+router.put("/:id", verifyAccessToken, authorizeRoles("admin","client"), updateSite);
+router.patch("/:id/toggle", verifyAccessToken, authorizeRoles("admin","client"), toggleSite);
 
 export default router;
