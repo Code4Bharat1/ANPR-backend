@@ -1,13 +1,15 @@
 import mongoose from "mongoose";
 
-const schema = new mongoose.Schema(
+const siteSchema = new mongoose.Schema(
   {
-    clientId: { type: mongoose.Schema.Types.ObjectId, ref: "Client", required: true },
     name: { type: String, required: true },
-    address: String,
+    location: String,
+    siteCode: String,
     isActive: { type: Boolean, default: true },
+    clientId: { type: mongoose.Schema.Types.ObjectId, ref: "Client" },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", }
   },
   { timestamps: true }
 );
 
-export default mongoose.model("Site", schema);
+export default mongoose.model("Site", siteSchema);

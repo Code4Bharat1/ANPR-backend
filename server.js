@@ -14,6 +14,7 @@ import vendorRoutes from "./src/routes/vendor.routes.js";
 import deviceRoutes from "./src/routes/device.routes.js";
 import tripRoutes from "./src/routes/trip.routes.js";
 import reportRoutes from "./src/routes/report.routes.js";
+import superAdminRoutes from "./src/routes/superadmin.routes.js";
 
 // Models (for retention cleanup)
 import Trip from "./src/models/Trip.model.js";
@@ -52,6 +53,7 @@ app.get("/", (req, res) =>
    API Routes
 ======================= */
 app.use("/api/auth", authRoutes);
+app.use("/api/superadmin", superAdminRoutes);
 app.use("/api/clients", clientRoutes);
 app.use("/api/sites", siteRoutes);
 app.use("/api/users", userRoutes);
