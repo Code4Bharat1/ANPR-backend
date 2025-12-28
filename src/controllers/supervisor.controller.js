@@ -1,5 +1,6 @@
 // controllers/supervisor.controller.js
 import Supervisor from "../models/supervisor.model.js";
+import Trip from "../models/Trip.model.js";
 import Site from "../models/Site.model.js";
 import { hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
@@ -134,3 +135,36 @@ export const toggleSupervisor = async (req, res, next) => {
     next(e);
   }
 };
+
+export const supervisorDashboard = async (req, res, next) => {
+  try {
+    const siteId = req.user.siteId;
+
+    const activeTrips = await Trip.countDocuments({
+      siteId,
+      status: "INSIDE",
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const todayEntries = await Trip.countDocuments({
+      siteId,
+      entryAt: { $gte: today },
+    });
+
+    const todayExits = await Trip.countDocuments({
+      siteId,
+      exitAt: { $gte: today },
+    });
+
+    res.json({
+      activeTrips,
+      todayEntries,
+      todayExits,
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+

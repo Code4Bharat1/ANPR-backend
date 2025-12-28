@@ -174,51 +174,56 @@ const ROLE_MODEL_MAP = {
 ====================================================== */
 export const login = async (req, res, next) => {
   try {
-    const { email, password, role } = req.body;
+    const { email, password } = req.body || {};
 
-    if (!email || !password || !role) {
+    // 1️⃣ Validation
+    if (!email || !password) {
       return res.status(400).json({
-        message: "Email, password and role required",
+        message: "Email and password are required",
       });
     }
 
-    const Model = ROLE_MODEL_MAP[role];
-    if (!Model) {
-      return res.status(400).json({ message: "Invalid role" });
-    }
+    // 2️⃣ Find user in ALL roles (priority order)
+    let user =
+      (await SuperAdmin.findOne({ email }).select("+password")) ||
+      (await Client.findOne({ email }).select("+password")) ||
+      (await ProjectManager.findOne({ email }).select("+password")) ||
+      (await Supervisor.findOne({ email }).select("+password"));
 
-    // 🔥 fetch password explicitly
-    const user = await Model.findOne({ email }).select("+password");
     if (!user) {
-      return res.status(401).json({ message: "Invalid credentials" });
+      return res.status(401).json({
+        message: "Invalid email or password",
+      });
     }
 
+    // 3️⃣ Password check
     const isMatch = await comparePassword(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ message: "Invalid credentials" });
+      return res.status(401).json({
+        message: "Invalid email or password",
+      });
     }
 
-    // 🔥 CORRECT clientId LOGIC
+    // 4️⃣ clientId logic
     let clientId = null;
-
     if (user.role === "client") {
-      clientId = user._id;               // Client Admin
+      clientId = user._id;
     } else if (user.clientId) {
-      clientId = user.clientId;          // Admin / PM / Supervisor
+      clientId = user.clientId;
     }
 
+    // 5️⃣ Token payload
     const payload = {
       id: user._id,
-      role: user.role,
+      role: user.role,   // role backend se aayega
       clientId,
     };
 
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
-    // rotate old tokens
+    // 6️⃣ Rotate refresh tokens
     await RefreshToken.deleteMany({ userId: user._id });
-
     await RefreshToken.create({
       userId: user._id,
       token: refreshToken,
@@ -232,7 +237,6 @@ export const login = async (req, res, next) => {
       newValue: { email: user.email, role: user.role },
     });
 
-    // never expose password
     user.password = undefined;
 
     res.json({
@@ -249,7 +253,6 @@ export const login = async (req, res, next) => {
     next(err);
   }
 };
-
 /* ======================================================
    REFRESH TOKEN
 ====================================================== */
@@ -307,14 +310,50 @@ export const logout = async (req, res, next) => {
 ====================================================== */
 export const registerSuperAdmin = async (req, res, next) => {
   try {
-    const existing = await SuperAdmin.countDocuments();
-    if (existing > 0) {
-      return res.status(403).json({ message: "SuperAdmin already exists" });
+    const { name, email, password } = req.body || {};
+
+    // 1️⃣ Required fields check
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        message: "Name, email and password are required",
+      });
     }
 
-    const { name, email, password } = req.body;
+    // 2️⃣ Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        message: "Invalid email format",
+      });
+    }
+
+    // 3️⃣ Password strength
+    if (password.length < 8) {
+      return res.status(400).json({
+        message: "Password must be at least 8 characters long",
+      });
+    }
+
+    // 4️⃣ Allow only ONE SuperAdmin
+    const existing = await SuperAdmin.countDocuments();
+    if (existing > 0) {
+      return res.status(403).json({
+        message: "SuperAdmin already exists",
+      });
+    }
+
+    // 5️⃣ Prevent duplicate email (extra safety)
+    const emailExists = await SuperAdmin.findOne({ email });
+    if (emailExists) {
+      return res.status(409).json({
+        message: "Email already registered",
+      });
+    }
+
+    // 6️⃣ Hash password
     const hashedPassword = await hashPassword(password);
 
+    // 7️⃣ Create SuperAdmin
     const superAdmin = await SuperAdmin.create({
       name,
       email,

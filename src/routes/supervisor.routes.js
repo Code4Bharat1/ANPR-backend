@@ -7,6 +7,7 @@ import {
     getSupervisors,
     assignSite,
     toggleSupervisor,
+    supervisorDashboard
 } from "../controllers/supervisor.controller.js";
 
 const router = express.Router();
@@ -38,5 +39,12 @@ router.patch(
     authorizeRoles("project_manager"),
     toggleSupervisor
 );
+router.get(
+  "/dashboard",
+  verifyAccessToken,
+  authorizeRoles("supervisor"),
+  supervisorDashboard
+);
+
 
 export default router;
