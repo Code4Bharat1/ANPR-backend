@@ -236,34 +236,17 @@ export const getClientDashboard = async (req, res, next) => {
 
 export const createProjectManager = async (req, res, next) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({
-        message: "User not authenticated",
-      });
-    }
-
-    if (!["client", "admin"].includes(req.user.role)) {
-      return res.status(403).json({
-        message: "Access denied",
-      });
-    }
-
-    if (!req.user.clientId) {
-      return res.status(400).json({
-        message: "ClientId missing in token",
-      });
-    }
-
     const { name, email, mobile, password, assignedSites } = req.body;
 
     const pm = await ProjectManager.create({
       name,
-      email,
+      email: email.toLowerCase().trim(), // ✅ FIX
       mobile,
-      password: await hashPassword(password),
+      password,
       assignedSites: assignedSites || [],
       clientId: req.user.clientId,
       createdBy: req.user.id,
+      role: "project_manager", // ✅ FIX (CRITICAL)
     });
 
     res.status(201).json(pm);
@@ -271,6 +254,7 @@ export const createProjectManager = async (req, res, next) => {
     next(err);
   }
 };
+
 
 
 
