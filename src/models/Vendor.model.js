@@ -1,14 +1,43 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
 
-const schema = new mongoose.Schema(
-  {
-    clientId: { type: mongoose.Schema.Types.ObjectId, ref: "Client", required: true },
-    name: { type: String, required: true },
-    phone: String,
-    assignedSites: [{ type: mongoose.Schema.Types.ObjectId, ref: "Site" }],
-    isActive: { type: Boolean, default: true },
+const vendorSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
   },
-  { timestamps: true }
-);
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+    trim: true
+  },
+  phone: {
+    type: String,
+    required: true
+  },
+  address: {
+    type: String,
+    required: true
+  },
+  assignedSites: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Site'
+  }],
+  projectManagerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  totalTrips: {
+    type: Number,
+    default: 0
+  }
+}, { timestamps: true });
 
-export default mongoose.model("Vendor", schema);
+export default mongoose.model('Vendor', vendorSchema);

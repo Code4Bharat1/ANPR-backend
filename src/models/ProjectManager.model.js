@@ -34,6 +34,27 @@ const ProjectManagerSchema = new mongoose.Schema(
       ref: "Client",
       required: true,
     },
+    location: {
+      type: String,
+      default: "",
+    },
+    settings: {
+  preferences: {
+    dateFormat: {
+      type: String,
+      default: "DD/MM/YYYY",
+    },
+    timeZone: {
+      type: String,
+      default: "(GMT+00:00) UTC",
+    },
+    language: {
+      type: String,
+      default: "English (US)",
+    },
+  },
+},
+
 
     assignedSites: [
       { type: mongoose.Schema.Types.ObjectId, ref: "Site" },
