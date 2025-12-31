@@ -212,6 +212,39 @@ export const deactivateClient = async (req, res, next) => {
 /* ======================================================
    DEVICE MANAGEMENT
 ====================================================== */
+export const createDevice = async (req, res) => {
+  try {
+    const {
+      clientId,
+      siteId,
+      deviceType,
+      serialNumber,
+    } = req.body;
+
+    if (!clientId || !deviceType || !serialNumber) {
+      return res.status(400).json({
+        message: "clientId, deviceType and serialNumber are required"
+      });
+    }
+
+    const device = await Device.create({
+      clientId,
+      siteId,
+      devicetype: deviceType.toUpperCase(), // ✅ FIX
+      serialNo: serialNumber,               // ✅ FIX
+    });
+
+    res.status(201).json({
+      message: "Device created successfully",
+      device
+    });
+  } catch (error) {
+    console.error("Create device error:", error);
+    res.status(500).json({ message: "Failed to create device" });
+  }
+};
+
+
 export const deviceStats = async (req, res, next) => {
   try {
     const total = await Device.countDocuments();
@@ -223,14 +256,30 @@ export const deviceStats = async (req, res, next) => {
   }
 };
 
-export const listDevices = async (req, res, next) => {
+export const listDevices = async (req, res) => {
   try {
-    const devices = await Device.find().sort({ createdAt: -1 });
-    res.json(devices);
-  } catch (e) {
-    next(e);
+    const devices = await Device.find()
+      .populate("clientId", "name")
+      .lean();
+
+    const formatted = devices.map(d => ({
+      _id: d._id,
+      name: d.serialNo,                  // 👈 UI needs name
+      deviceId: d.serialNo,              // 👈 UI uses deviceId
+      type: d.devicetype,                // 👈 UI uses type
+      status: d.isOnline ? "online" : "offline",
+      clientName: d.clientId?.name || "Not Assigned",
+      siteName: "Not Assigned",
+      lastActive: d.updatedAt
+    }));
+
+    res.json(formatted);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch devices" });
   }
 };
+
 
 export const toggleDevice = async (req, res, next) => {
   try {

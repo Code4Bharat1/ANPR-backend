@@ -24,9 +24,17 @@ router.put("/clients/:id", ...guard, SA.updateClient);
 router.patch("/clients/:id/deactivate", ...guard, SA.deactivateClient);
 
 // Devices
+// router.get("/devices/stats", ...guard, SA.deviceStats);
+// router.get("/devices", ...guard, SA.listDevices);
+// router.patch("/devices/:id/toggle", ...guard, SA.toggleDevice);
+// Devices
+router.post("/devices", ...guard, SA.createDevice); // ✅ ADD THIS
 router.get("/devices/stats", ...guard, SA.deviceStats);
 router.get("/devices", ...guard, SA.listDevices);
+// router.get("/devices/:id", ...guard, SA.getDeviceById); // optional
+// router.put("/devices/:id", ...guard, SA.updateDevice);  // optional
 router.patch("/devices/:id/toggle", ...guard, SA.toggleDevice);
+
 
 // Profile
 router.get("/profile", ...guard, SA.getProfile);

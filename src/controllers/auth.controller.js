@@ -174,16 +174,8 @@ const ROLE_MODEL_MAP = {
 ====================================================== */
 export const login = async (req, res, next) => {
   try {
-    const { email, password } = req.body || {};
+    const { email, password } = req.body;
 
-    // 1️⃣ Validation
-    if (!email || !password) {
-      return res.status(400).json({
-        message: "Email and password are required",
-      });
-    }
-
-    // 2️⃣ Find user in ALL roles (priority order)
     let user =
       (await SuperAdmin.findOne({ email }).select("+password")) ||
       (await Client.findOne({ email }).select("+password")) ||
@@ -191,38 +183,26 @@ export const login = async (req, res, next) => {
       (await Supervisor.findOne({ email }).select("+password"));
 
     if (!user) {
-      return res.status(401).json({
-        message: "Invalid email or password",
-      });
+      return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // 3️⃣ Password check
     const isMatch = await comparePassword(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({
-        message: "Invalid email or password",
-      });
+      return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // 4️⃣ clientId logic
-    let clientId = null;
-    if (user.role === "client") {
-      clientId = user._id;
-    } else if (user.clientId) {
-      clientId = user.clientId;
-    }
+    let clientId = user.clientId || null;
+    if (user.role === "client") clientId = user._id;
 
-    // 5️⃣ Token payload
     const payload = {
       id: user._id,
-      role: user.role,   // role backend se aayega
+      role: user.role,
       clientId,
     };
 
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
-    // 6️⃣ Rotate refresh tokens
     await RefreshToken.deleteMany({ userId: user._id });
     await RefreshToken.create({
       userId: user._id,
@@ -230,18 +210,16 @@ export const login = async (req, res, next) => {
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
-    await logAudit({
-      req,
-      action: "LOGIN",
-      module: "AUTH",
-      newValue: { email: user.email, role: user.role },
+    // 🔐 SET REFRESH TOKEN IN COOKIE
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
-
-    user.password = undefined;
 
     res.json({
       accessToken,
-      refreshToken,
       user: {
         id: user._id,
         email: user.email,
@@ -253,14 +231,16 @@ export const login = async (req, res, next) => {
     next(err);
   }
 };
+
 /* ======================================================
    REFRESH TOKEN
 ====================================================== */
 export const refresh = async (req, res, next) => {
   try {
-    const { refreshToken } = req.body;
+    const refreshToken = req.cookies.refreshToken;
+
     if (!refreshToken) {
-      return res.status(400).json({ message: "Refresh token required" });
+      return res.status(401).json({ message: "No refresh token" });
     }
 
     const stored = await RefreshToken.findOne({ token: refreshToken });
@@ -282,21 +262,23 @@ export const refresh = async (req, res, next) => {
   }
 };
 
+
 /* ======================================================
    LOGOUT
 ====================================================== */
+
 export const logout = async (req, res, next) => {
   try {
-    const { refreshToken } = req.body;
+    const refreshToken = req.cookies.refreshToken;
 
     if (refreshToken) {
       await RefreshToken.deleteOne({ token: refreshToken });
     }
 
-    await logAudit({
-      req,
-      action: "LOGOUT",
-      module: "AUTH",
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      sameSite: "strict",
+      secure: process.env.NODE_ENV === "production",
     });
 
     res.json({ message: "Logged out successfully" });
@@ -304,6 +286,7 @@ export const logout = async (req, res, next) => {
     next(err);
   }
 };
+
 
 /* ======================================================
    REGISTER SUPER ADMIN (ONE TIME)
