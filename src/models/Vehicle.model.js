@@ -52,8 +52,7 @@ const vehicleSchema = new mongoose.Schema(
                 "OTHER"
             ],
             required: true
-        }
-
+        },
 
     /* ==============================
        RELATIONS
