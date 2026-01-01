@@ -21,17 +21,29 @@ const ROLE_MODEL_MAP = {
 };
 
 /* ======================================================
-   LOGIN
+   LOGIN (EMAIL OR PHONE)
 ====================================================== */
 export const login = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { identifier, password } = req.body;
+
+    if (!identifier || !password) {
+      return res.status(400).json({
+        message: "Email/Phone and password are required",
+      });
+    }
+
+    // Normalize identifier
+    const isEmail = identifier.includes("@");
+    const query = isEmail
+      ? { email: identifier.toLowerCase().trim() }
+      : { mobile: identifier.trim() };
 
     let user =
-      (await SuperAdmin.findOne({ email }).select("+password")) ||
-      (await Client.findOne({ email }).select("+password")) ||
-      (await ProjectManager.findOne({ email }).select("+password")) ||
-      (await Supervisor.findOne({ email }).select("+password"));
+      (await SuperAdmin.findOne(query).select("+password")) ||
+      (await Client.findOne(query).select("+password")) ||
+      (await ProjectManager.findOne(query).select("+password")) ||
+      (await Supervisor.findOne(query).select("+password"));
 
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
@@ -49,6 +61,7 @@ export const login = async (req, res, next) => {
       id: user._id,
       role: user.role,
       clientId,
+      siteId: user.siteId || null,
     };
 
     const accessToken = generateAccessToken(payload);
@@ -61,7 +74,7 @@ export const login = async (req, res, next) => {
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
-    // 🔐 SET REFRESH TOKEN IN COOKIE
+    // 🔐 Refresh token in cookie
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -74,6 +87,7 @@ export const login = async (req, res, next) => {
       user: {
         id: user._id,
         email: user.email,
+        mobile: user.mobile,
         role: user.role,
         clientId,
       },

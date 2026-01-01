@@ -7,7 +7,12 @@ import {
     getSupervisors,
     assignSite,
     toggleSupervisor,
-    supervisorDashboard
+    supervisorDashboard,
+    getActiveVehicles,
+    getTripHistory,
+    exportTripHistory,
+    supervisorAnalytics,
+    allowVehicleExit
 } from "../controllers/supervisor.controller.js";
 
 const router = express.Router();
@@ -46,5 +51,37 @@ router.get(
   supervisorDashboard
 );
 
+router.get(
+  "/vehicles/active",
+  verifyAccessToken,
+  authorizeRoles("supervisor"),
+  getActiveVehicles
+);
+router.get(
+  "/trips",
+  verifyAccessToken,
+  authorizeRoles("supervisor"),
+  getTripHistory
+);
+router.get(
+  "/trips/export",
+  verifyAccessToken,
+  authorizeRoles("supervisor"),
+  exportTripHistory
+);
+router.get(
+  "/analytics",
+  verifyAccessToken,
+  authorizeRoles("supervisor"),
+  supervisorAnalytics
+);
+
+
+router.post(
+  "/vehicles/exit",
+  verifyAccessToken,
+  authorizeRoles("supervisor"),
+  allowVehicleExit
+);
 
 export default router;
