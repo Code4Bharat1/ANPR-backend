@@ -285,14 +285,106 @@ export const toggleDevice = async (req, res, next) => {
   try {
     const device = await Device.findById(req.params.id);
     device.isEnabled = !device.isEnabled;
+    device.isOnline = device.isEnabled; // ✅ Sync both fields
     await device.save();
 
     await logAudit({ req, action: "TOGGLE", module: "DEVICE", newValue: device });
-    res.json(device);
+    
+    // Return formatted response
+    const formatted = {
+      _id: device._id,
+      name: device.serialNo,
+      deviceId: device.serialNo,
+      type: device.devicetype,
+      status: device.isOnline ? "online" : "offline",
+      isEnabled: device.isEnabled,
+      isOnline: device.isOnline
+    };
+    
+    res.json(formatted);
   } catch (e) {
     next(e);
   }
 };
+export const getDeviceById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // Fetch device by ID
+    const device = await Device.findById(id)
+      .populate("clientId", "name")  // Populate client name
+      .populate("siteId", "name");  // Populate site name (if needed)
+
+    if (!device) {
+      return res.status(404).json({ message: "Device not found" });
+    }
+
+    // Format response data
+    const formattedDevice = {
+      _id: device._id,
+      name: device.serialNo,
+      deviceId: device.serialNo,
+      type: device.devicetype,
+      status: device.isOnline ? "online" : "offline",
+      clientName: device.clientId?.name || "Not Assigned",
+      siteName: device.siteId?.name || "Not Assigned",
+      lastActive: device.updatedAt,
+    };
+
+    res.json(formattedDevice);
+  } catch (e) {
+    next(e);
+  }
+};
+export const updateDevice = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { deviceType, serialNumber, clientId, siteId, ipAddress, notes } = req.body;
+
+    // Find the device by ID
+    const device = await Device.findById(id);
+    if (!device) {
+      return res.status(404).json({ message: "Device not found" });
+    }
+
+    // Update the device properties (ensure siteId is included)
+    device.devicetype = deviceType || device.devicetype;
+    device.serialNo = serialNumber || device.serialNo;
+    device.clientId = clientId || device.clientId;
+    device.siteId = siteId || device.siteId; // Ensure siteId is included
+    device.ipAddress = ipAddress || device.ipAddress;
+    device.notes = notes || device.notes;
+
+    // Save updated device
+    await device.save();
+
+    // Log audit action
+    await logAudit({
+      req,
+      action: "UPDATE",
+      module: "DEVICE",
+      oldValue: device,
+      newValue: req.body,
+    });
+
+    // Return the updated device response
+    const formattedDevice = {
+      _id: device._id,
+      name: device.serialNo,
+      deviceId: device.serialNo,
+      type: device.devicetype,
+      status: device.isOnline ? "online" : "offline",
+      clientName: device.clientId?.name || "Not Assigned",
+      siteName: device.siteId?.name || "Not Assigned",
+      lastActive: device.updatedAt,
+    };
+
+    res.json(formattedDevice);
+  } catch (e) {
+    next(e);
+  }
+};
+
 
 /* ======================================================
    PROFILE
@@ -306,48 +398,97 @@ export const getProfile = async (req, res, next) => {
   }
 };
 
-export const changePassword = async (req, res, next) => {
+/* ======================================================
+   GET SETTINGS (GLOBAL)
+====================================================== */
+export const getSettings = async (req, res, next) => {
   try {
-    const { oldPassword, newPassword } = req.body;
-    const me = await SuperAdmin.findById(req.user.id);
+    let settings = await AppSettings.findOne();
 
-    const ok = await comparePassword(oldPassword, me.password);
-    if (!ok) return res.status(400).json({ message: "Wrong old password" });
+    if (!settings) {
+      settings = await AppSettings.create({});
+    }
 
-    me.password = await hashPassword(newPassword);
-    await me.save();
-
-    await logAudit({ req, action: "CHANGE_PASSWORD", module: "PROFILE" });
-    res.json({ message: "Password changed" });
+    res.json({
+      success: true,
+      data: settings,
+    });
   } catch (e) {
     next(e);
   }
 };
 
 /* ======================================================
-   SETTINGS
+   UPDATE SETTINGS (GLOBAL)
 ====================================================== */
-export const getSettings = async (req, res, next) => {
+export const updateSettings = async (req, res, next) => {
   try {
-    let s = await AppSettings.findOne();
-    if (!s) s = await AppSettings.create({});
-    res.json(s);
+    let settings = await AppSettings.findOne();
+
+    if (!settings) {
+      settings = await AppSettings.create({});
+    }
+
+    const oldValue = settings.toObject();
+
+    Object.assign(settings, req.body);
+    await settings.save();
+
+    await logAudit({
+      req,
+      action: "UPDATE",
+      module: "SETTINGS",
+      oldValue,
+      newValue: settings,
+    });
+
+    res.json({
+      success: true,
+      message: "Settings updated successfully",
+      data: settings,
+    });
   } catch (e) {
     next(e);
   }
 };
-
-export const updateSettings = async (req, res, next) => {
+/**
+ * CHANGE PASSWORD
+ */
+export const changePassword = async (req, res, next) => {
   try {
-    let s = await AppSettings.findOne();
-    const old = s.toObject();
-    Object.assign(s, req.body);
-    await s.save();
+    const { currentPassword, newPassword } = req.body;
 
-    await logAudit({ req, action: "UPDATE", module: "SETTINGS", oldValue: old, newValue: s });
-    res.json(s);
-  } catch (e) {
-    next(e);
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        message: "Current password and new password are required",
+      });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        message: "Password must be at least 8 characters long",
+      });
+    }
+
+    const admin = await SuperAdmin.findById(req.user.id).select("+password");
+    if (!admin) {
+      return res.status(404).json({ message: "SuperAdmin not found" });
+    }
+
+    const isMatch = await comparePassword(currentPassword, admin.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Current password is incorrect" });
+    }
+
+    admin.password = await hashPassword(newPassword);
+    await admin.save();
+
+    res.json({
+      success: true,
+      message: "Password updated successfully",
+    });
+  } catch (err) {
+    next(err);
   }
 };
 

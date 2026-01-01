@@ -31,8 +31,8 @@ router.patch("/clients/:id/deactivate", ...guard, SA.deactivateClient);
 router.post("/devices", ...guard, SA.createDevice); // ✅ ADD THIS
 router.get("/devices/stats", ...guard, SA.deviceStats);
 router.get("/devices", ...guard, SA.listDevices);
-// router.get("/devices/:id", ...guard, SA.getDeviceById); // optional
-// router.put("/devices/:id", ...guard, SA.updateDevice);  // optional
+router.get("/devices/:id", ...guard, SA.getDeviceById); // optional
+router.put("/devices/:id", ...guard, SA.updateDevice);  // optional
 router.patch("/devices/:id/toggle", ...guard, SA.toggleDevice);
 
 
@@ -43,6 +43,7 @@ router.patch("/profile/change-password", ...guard, SA.changePassword);
 // Settings
 router.get("/settings", ...guard, SA.getSettings);
 router.patch("/settings", ...guard, SA.updateSettings);
+
 
 // Notifications
 router.get("/notifications", ...guard, SA.listNotifications);
