@@ -27,6 +27,8 @@ import RefreshToken from "./src/models/RefreshToken.model.js";
 // Middlewares
 import { errorMiddleware } from "./src/middlewares/error.middleware.js";
 
+
+
 dotenv.config();
 
 
@@ -43,6 +45,8 @@ app.use(
   })
 );
 
+
+// Serve static files for uploaded logos
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 

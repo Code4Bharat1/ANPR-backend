@@ -1,90 +1,4 @@
-// import Client from "../models/Client.model.js";
-// import { logAudit } from "../middlewares/audit.middleware.js";
 
-// const generateClientCode = async () => {
-//   let code;
-//   let exists = true;
-
-//   while (exists) {
-//     code = "CL-" + Math.floor(100000 + Math.random() * 900000);
-//     exists = await Client.findOne({ clientCode: code });
-//   }
-//   return code;
-// };
-
-// export const createClient = async (req, res, next) => {
-//   try {
-//     const {
-//       companyName,
-//       email,
-//       password,
-//       packageStart,
-//       packageEnd
-//     } = req.body;
-
-//     const clientCode = await generateClientCode();
-
-//     const client = await Client.create({
-//       companyName,
-//       email,
-//       password,
-//       role: "client",          // ✅ force role
-//       packageStart,
-//       packageEnd,
-//       clientCode,
-//       createdBy: req.user.id,
-//     });
-
-//     res.status(201).json(client);
-//   } catch (e) {
-//     next(e);
-//   }
-// };
-
-
-// export const getClients = async (req, res, next) => {
-//   try {
-//     const clients = await Client.find().sort({ createdAt: -1 });
-//     res.json(clients);
-//   } catch (e) {
-//     next(e);
-//   }
-// };
-
-// export const updateClient = async (req, res, next) => {
-//   try {
-//     const { id } = req.params;
-
-//     const old = await Client.findById(id);
-//     if (!old) return res.status(404).json({ message: "Client not found" });
-
-//     const updated = await Client.findByIdAndUpdate(id, req.body, { new: true });
-
-//     await logAudit({ req, action: "UPDATE", module: "CLIENT", oldValue: old, newValue: updated });
-
-//     res.json(updated);
-//   } catch (e) {
-//     next(e);
-//   }
-// };
-
-// export const toggleClient = async (req, res, next) => {
-//   try {
-//     const { id } = req.params;
-
-//     const old = await Client.findById(id);
-//     if (!old) return res.status(404).json({ message: "Client not found" });
-
-//     old.isActive = !old.isActive;
-//     await old.save();
-
-//     await logAudit({ req, action: "TOGGLE", module: "CLIENT", newValue: old });
-
-//     res.json(old);
-//   } catch (e) {
-//     next(e);
-//   }
-// };
 
 import Client from "../models/Client.model.js";
 import ProjectManager from "../models/ProjectManager.model.js";
@@ -92,9 +6,11 @@ import Supervisor from "../models/supervisor.model.js";
 import Site from "../models/Site.model.js";
 import Device from "../models/Device.model.js";
 import Trip from "../models/Trip.model.js";
+import User from "../models/User.model.js";
+import Settings from '../models/admin.settings.model.js';
 import { hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
-
+import ExcelJS from 'exceljs';
 /* ------------------ CREATE CLIENT ------------------ */
 export const createClient = async (req, res, next) => {
   try {
@@ -258,15 +174,117 @@ export const createProjectManager = async (req, res, next) => {
 
 
 
-export const getUsers = async (req, res) => {
-  const clientId = req.user.clientId;
+export const createusers = async (req, res, next) => {
+  try {
+    const { name, email, phone, role, password, assignedSite } = req.body;
 
-  const managers = await ProjectManager.find({ clientId }).select("-password");
-  const supervisors = await Supervisor.find({ clientId }).select("-password");
+    // Validation
+    if (!name || !email || !role || !password) {
+      return res.status(400).json({ message: "Required fields missing" });
+    }
 
-  res.json({ managers, supervisors });
+    // Check if req.user exists
+    if (!req.user || !req.user.clientId) {
+      return res.status(401).json({ message: "Authentication failed: No client ID found" });
+    }
+
+    // Check if user already exists
+    const exists = await User.findOne({ email: email.toLowerCase() });
+    if (exists) {
+      return res.status(409).json({ message: "User already exists" });
+    }
+
+    // Create user
+    const user = await User.create({
+      name,
+      email: email.toLowerCase().trim(),
+      phone,
+      role: role === "Project Managers" ? "project_manager" : "supervisor",
+      password,
+      assignedSite,
+      clientId: req.user.clientId,
+      createdBy: req.user.id,
+      status: 'Active' // Set default status
+    });
+
+    // Remove password from response
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
+    res.status(201).json({
+      message: "User created successfully",
+      data: userResponse,
+    });
+  } catch (err) {
+    console.error('Create user error:', err);
+    next(err);
+  }
 };
 
+export const listUsers = async (req, res, next) => {
+  try {
+    const { role } = req.query;
+
+    // Check if req.user exists
+    if (!req.user || !req.user.clientId) {
+      return res.status(401).json({ message: "Authentication failed" });
+    }
+
+    let dbRole;
+    if (role === "Project Managers") dbRole = "project_manager";
+    if (role === "Supervisors") dbRole = "supervisor";
+
+    const users = await User.find({
+      clientId: req.user.clientId,
+      ...(dbRole && { role: dbRole }),
+    }).select("-password");
+
+    res.json(
+      users.map((u) => ({
+        id: u._id,
+        name: u.name,
+        email: u.email,
+        role: u.role === "project_manager" ? "Project Manager" : "Supervisor",
+        assignedSite: u.assignedSite || "-",
+        status: u.status || "Active",
+      }))
+    );
+  } catch (err) {
+    console.error('List users error:', err);
+    next(err);
+  }
+};
+
+export const toggleUserStatus = async (req, res, next) => {
+  try {
+    const { status } = req.body;
+
+    // Check if req.user exists
+    if (!req.user || !req.user.clientId) {
+      return res.status(401).json({ message: "Authentication failed" });
+    }
+
+    const user = await User.findOne({
+      _id: req.params.id,
+      clientId: req.user.clientId // Ensure user belongs to same client
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    user.status = status;
+    await user.save();
+
+    res.json({
+      message: "User status updated",
+      status: user.status,
+    });
+  } catch (err) {
+    console.error('Toggle status error:', err);
+    next(err);
+  }
+};
 export const createSite = async (req, res) => {
   const site = await Site.create({
     ...req.body,
@@ -308,10 +326,194 @@ export const getDevices = async (req, res) => {
   const devices = await Device.find({ clientId: req.user.clientId });
   res.json(devices);
 };
-export const getReports = async (req, res) => {
-  const reports = await Trip.find({ clientId: req.user.clientId });
-  res.json(reports);
+
+
+/* ======================================================
+   GET REPORTS WITH FILTERS
+====================================================== */
+export const getReports = async (req, res, next) => {
+  try {
+    const { startDate, endDate, status, site } = req.query;
+    
+    // Build query
+    const query = { clientId: req.user.clientId };
+    
+    // Date filter
+    if (startDate && endDate) {
+      query.createdAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999))
+      };
+    }
+    
+    // Status filter
+    if (status && status !== 'All Status') {
+      query.status = status;
+    }
+    
+    // Site filter
+    if (site && site !== 'All Sites') {
+      query.site = site;
+    }
+    
+    const trips = await Trip.find(query).sort({ createdAt: -1 });
+    
+    res.json(
+      trips.map((trip) => ({
+        id: trip._id,
+        vehicleNumber: trip.vehicleNumber,
+        entryTime: trip.entryTime 
+          ? new Date(trip.entryTime).toLocaleString('en-IN', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+            })
+          : '-',
+        exitTime: trip.exitTime 
+          ? new Date(trip.exitTime).toLocaleString('en-IN', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+            })
+          : '-',
+        status: trip.status || 'Active',
+        site: trip.site || '-'
+      }))
+    );
+  } catch (err) {
+    console.error('Get reports error:', err);
+    next(err);
+  }
 };
+
+/* ======================================================
+   EXPORT REPORTS TO EXCEL
+====================================================== */
+export const exportReports = async (req, res, next) => {
+  try {
+    const { startDate, endDate, status, site } = req.query;
+    
+    // Build query
+    const query = { clientId: req.user.clientId };
+    
+    // Date filter
+    if (startDate && endDate) {
+      query.createdAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999))
+      };
+    }
+    
+    // Status filter
+    if (status && status !== 'All Status') {
+      query.status = status;
+    }
+    
+    // Site filter
+    if (site && site !== 'All Sites') {
+      query.site = site;
+    }
+    
+    const trips = await Trip.find(query).sort({ createdAt: -1 });
+    
+    // Create Excel workbook
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Trips Report');
+    
+    // Define columns
+    worksheet.columns = [
+      { header: 'Trip ID', key: 'tripId', width: 25 },
+      { header: 'Vehicle Number', key: 'vehicleNumber', width: 20 },
+      { header: 'Entry Time', key: 'entryTime', width: 25 },
+      { header: 'Exit Time', key: 'exitTime', width: 25 },
+      { header: 'Status', key: 'status', width: 15 }
+    ];
+    
+    // Style header row
+    worksheet.getRow(1).font = { bold: true, size: 12 };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF4472C4' }
+    };
+    worksheet.getRow(1).font = { ...worksheet.getRow(1).font, color: { argb: 'FFFFFFFF' } };
+    worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+    
+    // Add data rows
+    trips.forEach((trip) => {
+      worksheet.addRow({
+        tripId: trip._id.toString(),
+        vehicleNumber: trip.vehicleNumber,
+        entryTime: trip.entryTime 
+          ? new Date(trip.entryTime).toLocaleString('en-IN', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+            })
+          : '-',
+        exitTime: trip.exitTime 
+          ? new Date(trip.exitTime).toLocaleString('en-IN', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+            })
+          : '-',
+        status: trip.status || 'Active'
+      });
+    });
+    
+    // Add borders to all cells
+    worksheet.eachRow((row, rowNumber) => {
+      row.eachCell((cell) => {
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+        
+        // Center align all cells except Trip ID
+        if (cell.col !== 1) {
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        }
+      });
+    });
+    
+    // Set response headers
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=trips_report_${Date.now()}.xlsx`
+    );
+    
+    // Write to response
+    await workbook.xlsx.write(res);
+    res.end();
+    
+  } catch (err) {
+    console.error('Export reports error:', err);
+    next(err);
+  }
+};
+
+
+
+
 export const createSupervisor = async (req, res, next) => {
   try {
     if (!req.user || !req.user.clientId) {
@@ -364,34 +566,191 @@ export const getSupervisors = async (req, res, next) => {
 export const getMyProfile = async (req, res, next) => {
   try {
     if (!req.user) {
-      return res.status(401).json({
-        message: "User not authenticated",
-      });
+      return res.status(401).json({ message: "User not authenticated" });
     }
 
     let profile;
 
-    // 👤 CLIENT ADMIN
-    if (req.user.role === "client") {
+    // CLIENT / CLIENT ADMIN
+    if (req.user.role === "client" || req.user.role === "client_admin") {
       profile = await Client.findById(req.user.id).select("-password");
     }
 
-    // 👤 SYSTEM ADMIN (optional support)
+    // SYSTEM ADMIN
     if (req.user.role === "admin") {
       profile = await Admin.findById(req.user.id).select("-password");
     }
 
     if (!profile) {
-      return res.status(404).json({
-        message: "Profile not found",
-      });
+      return res.status(404).json({ message: "Profile not found" });
     }
 
     res.json({
+      success: true,
       role: req.user.role,
       data: profile,
     });
   } catch (err) {
+    next(err);
+  }
+};
+
+export const updateMyProfile = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { profile, company, preferences } = req.body;
+
+    let user;
+
+    // CLIENT / CLIENT ADMIN
+    if (req.user.role === "client" || req.user.role === "client_admin") {
+      user = await Client.findById(req.user.id);
+    }
+
+    // ADMIN
+    if (req.user.role === "admin") {
+      user = await Admin.findById(req.user.id);
+    }
+
+    if (!user) {
+      return res.status(404).json({ message: "Profile not found" });
+    }
+
+    /* ======================
+       UPDATE PROFILE FIELDS
+    ====================== */
+    if (profile) {
+      if (profile.fullName) user.name = profile.fullName;
+      if (profile.email) user.email = profile.email;
+      if (profile.phone) user.phone = profile.phone;
+      if (profile.location !== undefined) user.location = profile.location;
+    }
+
+    /* ======================
+       UPDATE COMPANY (CLIENT ONLY)
+    ====================== */
+    if (company && user.company) {
+      user.company = {
+        ...user.company,
+        ...company,
+      };
+    }
+
+    /* ======================
+       UPDATE PREFERENCES
+    ====================== */
+    if (preferences) {
+      user.preferences = {
+        ...user.preferences,
+        ...preferences,
+      };
+    }
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Profile updated successfully",
+      data: user,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/* ======================================================
+   GET SETTINGS
+====================================================== */
+export const getSettings = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // 🔥 FIX: resolve clientId safely
+    const clientId =
+      req.user.role === "client"
+        ? req.user.id
+        : req.user.clientId;
+
+    if (!clientId) {
+      return res.status(400).json({
+        message: "ClientId not found in token",
+      });
+    }
+
+    let settings = await Settings.findOne({ clientId });
+
+    // Create default settings if not exist
+    if (!settings) {
+      settings = await Settings.create({
+        clientId,
+        company: {
+          name: "Your Company Name",
+          address: "Your Company Address",
+          supportEmail:
+            req.user.email || "support@company.com",
+        },
+      });
+    }
+
+    res.json({
+      success: true,
+      data: settings,
+    });
+  } catch (err) {
+    console.error("Get settings error:", err);
+    next(err);
+  }
+};
+
+/* ======================================================
+   UPDATE SETTINGS
+====================================================== */
+export const updateSettings = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // 🔥 FIX: resolve clientId safely
+    const clientId =
+      req.user.role === "client"
+        ? req.user.id
+        : req.user.clientId;
+
+    if (!clientId) {
+      return res.status(400).json({
+        message: "ClientId not found in token",
+      });
+    }
+
+    const { company } = req.body;
+
+    let settings = await Settings.findOne({ clientId });
+    if (!settings) {
+      settings = new Settings({ clientId });
+    }
+
+    if (company) {
+      settings.company = {
+        ...settings.company,
+        ...company,
+      };
+    }
+
+    await settings.save();
+
+    res.json({
+      success: true,
+      message: "Settings updated successfully",
+      data: settings,
+    });
+  } catch (err) {
+    console.error("Update settings error:", err);
     next(err);
   }
 };

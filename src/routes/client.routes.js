@@ -1,16 +1,3 @@
-// import express from "express";
-// import { verifyAccessToken } from "../middlewares/auth.middleware.js";
-// import { authorizeRoles } from "../middlewares/role.middleware.js";
-// import { createClient, getClients, updateClient, toggleClient } from "../controllers/client.controller.js";
-
-// const router = express.Router();
-
-// router.post("/", verifyAccessToken, authorizeRoles("superadmin"), createClient);
-// router.get("/", verifyAccessToken, authorizeRoles("superadmin"), getClients);
-// router.put("/:id", verifyAccessToken, authorizeRoles("superadmin"), updateClient);
-// router.patch("/:id/toggle", verifyAccessToken, authorizeRoles("superadmin"), toggleClient);
-
-// export default router;
 
 
 import express from "express";
@@ -23,14 +10,20 @@ import {
   toggleClient,
   getClientDashboard,
   createProjectManager,
-  getUsers,
   createSite,
   getDevices,
   getReports,
   createSupervisor,
   getSupervisors,
   getSites,
-  getMyProfile
+  getMyProfile,
+  createusers,
+  listUsers,
+  toggleUserStatus,
+  exportReports,
+  getSettings,
+  updateSettings,
+  updateMyProfile
 
 } from "../controllers/client.controller.js";
 
@@ -66,7 +59,7 @@ router.get(
  * @access  SuperAdmin
  */
 router.put(
-  "/:id",
+  "/update/:id",
   verifyAccessToken,
   authorizeRoles("superadmin"),
   updateClient
@@ -98,9 +91,13 @@ router.post(
   authorizeRoles("client", "admin"),    // 🔥 MUST
   createProjectManager
 );
-router.get("/users", getUsers
-  
-);
+// router.get("/users", getUsers);
+router.post("/users",verifyAccessToken,                    // 🔥 MUST
+  authorizeRoles("client", "admin"), createusers);
+router.get("/users", verifyAccessToken,                    // 🔥 MUST
+  authorizeRoles("client", "admin"),listUsers);
+router.patch("/users/:id/status",verifyAccessToken,                    // 🔥 MUST
+  authorizeRoles("client", "admin"), toggleUserStatus);
 router.post(
   "/sites",
   verifyAccessToken,
@@ -118,8 +115,21 @@ router.get("/devices",
   verifyAccessToken,
   authorizeRoles("client", "admin"),
   getDevices);
-router.get("/reports", verifyAccessToken,
-  authorizeRoles("client", "admin"),getReports);
+
+
+router.get(
+  "/reports", 
+  verifyAccessToken,
+  authorizeRoles("client", "admin"),
+  getReports
+);
+
+router.get(
+  "/reports/export", 
+  verifyAccessToken,
+  authorizeRoles("client", "admin"),
+  exportReports
+);
 router.post("/supervisors", verifyAccessToken,                    // 🔥 MUST
   authorizeRoles("client", "admin"), createSupervisor);
 router.get("/supervisors", verifyAccessToken,                    // 🔥 MUST
@@ -132,8 +142,47 @@ router.get("/supervisors", verifyAccessToken,                    // 🔥 MUST
 router.get(
   "/profile",
   verifyAccessToken,
-  authorizeRoles("client", "admin"),
+  authorizeRoles("client",  "admin"),
   getMyProfile
 );
 
+router.put(
+  "/profile",
+  verifyAccessToken,
+  authorizeRoles("client",  "admin"),
+  updateMyProfile
+);
+
+
+
+
+
+// Settings routes
+router.get(
+  '/settings',
+  verifyAccessToken,
+  authorizeRoles('client', 'admin'),
+  getSettings
+);
+
+router.put(
+  '/settings',
+  verifyAccessToken,
+  authorizeRoles('client', 'admin'),
+  updateSettings
+);
+
+// router.post(
+//   '/settings/logo',
+//   verifyAccessToken,
+//   authorizeRoles('client', 'admin'),
+//   uploadLogo
+// );
+
+// router.delete(
+//   '/settings/logo',
+//   verifyAccessToken,
+//   authorizeRoles('client', 'admin'),
+//   deleteLogo
+// );
 export default router;
