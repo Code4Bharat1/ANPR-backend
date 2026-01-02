@@ -94,10 +94,13 @@ router.post(
 // router.get("/users", getUsers);
 router.post("/users",verifyAccessToken,                    // 🔥 MUST
   authorizeRoles("client", "admin"), createusers);
+
 router.get("/users", verifyAccessToken,                    // 🔥 MUST
   authorizeRoles("client", "admin"),listUsers);
+
 router.patch("/users/:id/status",verifyAccessToken,                    // 🔥 MUST
   authorizeRoles("client", "admin"), toggleUserStatus);
+
 router.post(
   "/sites",
   verifyAccessToken,
@@ -108,7 +111,7 @@ router.post(
 router.get(
   "/sites",
   verifyAccessToken,
-  authorizeRoles("client", "admin"),
+  authorizeRoles("client", "admin",),
   getSites
 );
 router.get("/devices", 
