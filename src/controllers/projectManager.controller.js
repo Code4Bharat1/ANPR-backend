@@ -6,6 +6,8 @@ import { logAudit } from "../middlewares/audit.middleware.js";
 import Trip from "../models/Trip.model.js";
 import Site from "../models/Site.model.js";
 import Vendor from "../models/Vendor.model.js";
+import DeviceModel from '../models/Device.model.js';
+import supervisorModel from '../models/supervisor.model.js';
 
 
 /**
@@ -131,27 +133,240 @@ export const toggleProjectManager = async (req, res, next) => {
     next(e);
   }
 };
-// Dashboard stats
+// Dashboard stats controller
+
+
+
+// Dashboard stats controller - Fixed version
 export const getDashboardStats = async (req, res) => {
   try {
-    const totalSites = await Site.countDocuments({ projectManagerId: req.user.id });
-    const activeSupervisors = await Supervisor.countDocuments({
-      projectManagerId: req.user.id,
-      isActive: true,
-    });
-    const liveVehicles = await Vehicle.countDocuments({ projectManagerId: req.user.id, status: "online" });
+    const projectManagerId = req.user.id;
+
+    // Basic counts with fallback to 0
+    const totalSites = await Site.countDocuments({ projectManagerId }).catch(() => 0);
+    const totalTrips = await Trip.countDocuments({ projectManagerId }).catch(() => 0);
+    const supervisors = await supervisorModel.countDocuments({ projectManagerId }).catch(() => 0);
+
+    // Active trips - using common status values
+    const activeTrips = await Trip.countDocuments({ 
+      projectManagerId,
+      status: { $in: ['active', 'in-progress', 'ongoing', 'started'] }
+    }).catch(() => 0);
+
+    // Active supervisors
+    const activeSupervisors = await supervisorModel.countDocuments({
+      projectManagerId,
+      isActive: true
+    }).catch(() => 0);
+
+    // Today's trips
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const todayTrips = await Trip.countDocuments({
+      projectManagerId,
+      createdAt: { $gte: startOfDay, $lte: endOfDay }
+    }).catch(() => 0);
+
+    // Completed trips
+    const completedTrips = await Trip.countDocuments({
+      projectManagerId,
+      status: { $in: ['completed', 'finished', 'done', 'closed'] }
+    }).catch(() => 0);
+
+    // Get sites with details
+    let sitesWithDetails = [];
+    try {
+      const sites = await Site.find({ projectManagerId })
+        .select('name siteId status')
+        .limit(4)
+        .lean();
+
+      // Get barrier (device) and trip counts for each site
+      sitesWithDetails = await Promise.all(
+        sites.map(async (site) => {
+          try {
+            // Count BARRIER type devices for this site
+            const barriers = await DeviceModel.countDocuments({ 
+              siteId: site._id,
+              devicetype: 'BARRIER',
+              isEnabled: true 
+            }).catch(() => 0);
+
+            // Count active trips for this site
+            const siteActiveTrips = await Trip.countDocuments({
+              siteId: site._id,
+              status: { $in: ['active', 'in-progress', 'ongoing', 'started'] }
+            }).catch(() => 0);
+
+            return {
+              id: site.siteId || site._id.toString(),
+              name: site.name || 'Unknown Site',
+              barriers: barriers || 0,
+              activeTrips: siteActiveTrips || 0,
+              status: site.status || 'Operational'
+            };
+          } catch (err) {
+            console.error('Error processing site:', err);
+            return {
+              id: site._id.toString(),
+              name: site.name || 'Unknown Site',
+              barriers: 0,
+              activeTrips: 0,
+              status: 'Unknown'
+            };
+          }
+        })
+      );
+    } catch (err) {
+      console.error('Error fetching sites:', err);
+      sitesWithDetails = [];
+    }
 
     const stats = {
-      totalSites,
-      activeSupervisors,
-      liveVehicles,
+      totalSites: totalSites || 0,
+      totalTrips: totalTrips || 0,
+      supervisors: supervisors || 0,
+      activeTrips: activeTrips || 0,
+      activeSupervisors: activeSupervisors || 0,
+      todayTrips: todayTrips || 0,
+      completedTrips: completedTrips || 0,
+      sites: sitesWithDetails || []
     };
 
     res.json(stats);
   } catch (err) {
-    res.status(500).json({ message: "Error fetching dashboard stats", err });
+    console.error('Error fetching dashboard stats:', err);
+    res.status(500).json({ 
+      message: "Error fetching dashboard stats", 
+      error: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 };
+
+
+// Alternative version with aggregation pipeline for better performance
+// export const getDashboardStatsOptimized = async (req, res) => {
+//   try {
+//     const projectManagerId = req.user.id;
+
+//     const startOfDay = new Date();
+//     startOfDay.setHours(0, 0, 0, 0);
+    
+//     const endOfDay = new Date();
+//     endOfDay.setHours(23, 59, 59, 999);
+
+//     // Run all counts in parallel for better performance
+//     const [
+//       totalSites,
+//       totalTrips,
+//       supervisors,
+//       activeTrips,
+//       activeSupervisors,
+//       todayTrips,
+//       completedTrips,
+//       sitesData
+//     ] = await Promise.all([
+//       Site.countDocuments({ projectManagerId }),
+      
+//       Trip.countDocuments({ projectManagerId }),
+      
+//       Supervisor.countDocuments({ projectManagerId }),
+      
+//       Trip.countDocuments({ 
+//         projectManagerId,
+//         status: { $in: ['in-progress', 'ongoing', 'active'] }
+//       }),
+      
+//       Supervisor.countDocuments({
+//         projectManagerId,
+//         isActive: true,
+//         isOnline: true
+//       }),
+      
+//       Trip.countDocuments({
+//         projectManagerId,
+//         createdAt: { $gte: startOfDay, $lte: endOfDay }
+//       }),
+      
+//       Trip.countDocuments({
+//         projectManagerId,
+//         status: { $in: ['completed', 'finished', 'done'] }
+//       }),
+
+//       // Aggregation to get sites with their barrier and trip counts
+//       Site.aggregate([
+//         { $match: { projectManagerId } },
+//         { $limit: 4 },
+//         {
+//           $lookup: {
+//             from: 'barriers',
+//             let: { siteId: '$_id' },
+//             pipeline: [
+//               { 
+//                 $match: { 
+//                   $expr: { $eq: ['$siteId', '$$siteId'] },
+//                   isActive: true 
+//                 }
+//               },
+//               { $count: 'count' }
+//             ],
+//             as: 'barriersCount'
+//           }
+//         },
+//         {
+//           $lookup: {
+//             from: 'trips',
+//             let: { siteId: '$_id' },
+//             pipeline: [
+//               { 
+//                 $match: { 
+//                   $expr: { $eq: ['$siteId', '$$siteId'] },
+//                   status: { $in: ['in-progress', 'ongoing', 'active'] }
+//                 }
+//               },
+//               { $count: 'count' }
+//             ],
+//             as: 'activeTripsCount'
+//           }
+//         },
+//         {
+//           $project: {
+//             id: { $ifNull: ['$siteId', { $toString: '$_id' }] },
+//             name: 1,
+//             status: { $ifNull: ['$status', 'Operational'] },
+//             barriers: { 
+//               $ifNull: [{ $arrayElemAt: ['$barriersCount.count', 0] }, 0] 
+//             },
+//             activeTrips: { 
+//               $ifNull: [{ $arrayElemAt: ['$activeTripsCount.count', 0] }, 0] 
+//             }
+//           }
+//         }
+//       ])
+//     ]);
+
+//     const stats = {
+//       totalSites,
+//       totalTrips,
+//       supervisors,
+//       activeTrips,
+//       activeSupervisors,
+//       todayTrips,
+//       completedTrips,
+//       sites: sitesData
+//     };
+
+//     res.json(stats);
+//   } catch (err) {
+//     console.error('Error fetching dashboard stats:', err);
+//     res.status(500).json({ message: "Error fetching dashboard stats", error: err.message });
+//   }
+// };
 
 // Sites routes
 export const getMySites = async (req, res) => {
