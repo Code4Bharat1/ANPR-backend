@@ -23,7 +23,10 @@ import {
   exportReports,
   getSettings,
   updateSettings,
-  updateMyProfile
+  updateMyProfile,
+  deleteSite,
+  updateSite,
+  getProjectManagers
 
 } from "../controllers/client.controller.js";
 
@@ -91,6 +94,22 @@ router.post(
   authorizeRoles("client", "admin"),    // 🔥 MUST
   createProjectManager
 );
+
+
+router.get(
+  "/project-managers",
+  verifyAccessToken,
+  authorizeRoles("client", "admin"),
+  getProjectManagers
+);
+router.post("/supervisors", verifyAccessToken,                    // 🔥 MUST
+  authorizeRoles("client", "admin"), createSupervisor);
+
+router.get("/supervisors", verifyAccessToken,                    // 🔥 MUST
+  authorizeRoles("client", "admin"), getSupervisors);
+
+
+  
 // router.get("/users", getUsers);
 router.post("/users",verifyAccessToken,                    // 🔥 MUST
   authorizeRoles("client", "admin"), createusers);
@@ -114,6 +133,22 @@ router.get(
   authorizeRoles("client", "admin",),
   getSites
 );
+// ✅ UPDATE SITE
+router.put(
+  "/sites/:id",
+  verifyAccessToken,
+  authorizeRoles("client", "admin"),
+  updateSite
+);
+
+// ✅ DELETE SITE
+router.delete(
+  "/sites/:id",
+  verifyAccessToken,
+  authorizeRoles("client", "admin"),
+  deleteSite
+);
+
 router.get("/devices", 
   verifyAccessToken,
   authorizeRoles("client", "admin"),
@@ -133,10 +168,6 @@ router.get(
   authorizeRoles("client", "admin"),
   exportReports
 );
-router.post("/supervisors", verifyAccessToken,                    // 🔥 MUST
-  authorizeRoles("client", "admin"), createSupervisor);
-router.get("/supervisors", verifyAccessToken,                    // 🔥 MUST
-  authorizeRoles("client", "admin"), getSupervisors);
 
 /**
  * GET MY PROFILE

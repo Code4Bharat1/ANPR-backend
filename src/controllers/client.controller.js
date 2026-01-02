@@ -120,35 +120,77 @@ export const toggleClient = async (req, res, next) => {
     next(err);
   }
 };
+
+
 export const getClientDashboard = async (req, res, next) => {
   try {
-    // 🔥 SAFETY CHECK
-    if (!req.user) {
-      return res.status(401).json({
-        message: "User not authenticated",
-      });
-    }
-
-    if (!req.user.clientId) {
-      return res.status(400).json({
-        message: "ClientId missing in token",
-      });
-    }
-
     const clientId = req.user.clientId;
 
-    const stats = {
-      totalSites: await Site.countDocuments({ clientId }),
-      projectManagers: await ProjectManager.countDocuments({ clientId }),
-      supervisors: await Supervisor.countDocuments({ clientId }),
-      devices: await Device.countDocuments({ clientId }),
-    };
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
-    res.json(stats);
+    const [
+      totalSites,
+      projectManagers,
+      supervisors,
+      totalDevices,
+      activeDevices,
+      todayEntries,
+      todayExits,
+      clientData
+    ] = await Promise.all([
+      Site.countDocuments({ clientId }),
+      ProjectManager.countDocuments({ clientId }),
+      Supervisor.countDocuments({ clientId }),
+      Device.countDocuments({ clientId }),
+      Device.countDocuments({ clientId, status: "Active" }),
+
+      Trip.countDocuments({
+        clientId,
+        entryAt: { $gte: today, $lt: tomorrow }
+      }),
+
+      Trip.countDocuments({
+        clientId,
+        exitAt: { $gte: today, $lt: tomorrow }
+      }),
+
+      Client.findById(clientId)
+    ]);
+
+    const recentActivity = await Trip.find({ clientId })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .populate("siteId", "name")
+      .select("plateText entryAt exitAt status siteId");
+
+    res.json({
+      totalSites,
+      totalProjectManagers: projectManagers,
+      totalSupervisors: supervisors,
+      totalUsers: projectManagers + supervisors,
+      totalDevices,
+      activeDevices,
+      inactiveDevices: totalDevices - activeDevices,
+      todayEntries,
+      todayExits,
+      todayTotal: todayEntries + todayExits,
+      recentActivity: recentActivity.map(trip => ({
+        vehicleNumber: trip.plateText,
+        site: trip.siteId?.name,
+        entryTime: trip.entryAt,
+        exitTime: trip.exitAt,
+        status: trip.status
+      })),
+      lastUpdated: new Date().toISOString()
+    });
   } catch (err) {
     next(err);
   }
 };
+
 
 export const createProjectManager = async (req, res, next) => {
   try {
@@ -171,7 +213,27 @@ export const createProjectManager = async (req, res, next) => {
   }
 };
 
+/**
+ * GET PROJECT MANAGERS (Client/Admin)
+ * GET /api/clients/project-managers
+ */
+export const getProjectManagers = async (req, res, next) => {
+  try {
+    const clientId = req.user.clientId;
 
+    const projectManagers = await ProjectManager.find({ clientId })
+      .select("-password")                 // 🔐 never expose password
+      .populate("assignedSites", "name")   // optional
+      .sort({ createdAt: -1 });
+
+    res.json({
+      count: projectManagers.length,
+      data: projectManagers
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
 
 export const createusers = async (req, res, next) => {
@@ -285,18 +347,37 @@ export const toggleUserStatus = async (req, res, next) => {
     next(err);
   }
 };
-export const createSite = async (req, res) => {
-  const site = await Site.create({
-    ...req.body,
-    clientId: req.user.clientId,
-    createdBy: req.user.id,
-  });
 
-  res.status(201).json(site);
+// ============================================
+// CONTROLLERS (controllers/clientAdmin.js)
+// ============================================
+
+/**
+ * CREATE SITE
+ */
+export const createSite = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.clientId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const site = await Site.create({
+      ...req.body,
+      clientId: req.user.clientId,
+      createdBy: req.user.id,
+    });
+
+    res.status(201).json(site);
+  } catch (err) {
+    next(err);
+  }
 };
+
+/**
+ * GET ALL SITES
+ */
 export const getSites = async (req, res, next) => {
   try {
-    // 🔐 safety check
     if (!req.user || !req.user.clientId) {
       return res.status(401).json({
         message: "Unauthorized or clientId missing",
@@ -315,6 +396,109 @@ export const getSites = async (req, res, next) => {
   }
 };
 
+/**
+ * UPDATE SITE
+ */
+export const updateSite = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // 🔐 Safety check
+    if (!req.user || !req.user.clientId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // 1️⃣ Check if site exists
+    const site = await Site.findById(id);
+
+    if (!site) {
+      return res.status(404).json({ message: "Site not found" });
+    }
+
+    // 2️⃣ Verify ownership (site belongs to this client)
+    if (site.clientId.toString() !== req.user.clientId.toString()) {
+      return res.status(403).json({
+        message: "Forbidden: You don't have permission to update this site"
+      });
+    }
+
+    // 3️⃣ Update the site
+    const updatedSite = await Site.findByIdAndUpdate(
+      id,
+      {
+        ...req.body,
+        updatedBy: req.user.id,
+        updatedAt: new Date(),
+      },
+      {
+        new: true, // Return updated document
+        runValidators: true // Run schema validations
+      }
+    );
+
+    res.json({
+      message: "Site updated successfully",
+      data: updatedSite,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * DELETE SITE
+ */
+export const deleteSite = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // 🔐 Safety check
+    if (!req.user || !req.user.clientId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // 1️⃣ Check if site exists
+    const site = await Site.findById(id);
+
+    if (!site) {
+      return res.status(404).json({ message: "Site not found" });
+    }
+
+    // 2️⃣ Verify ownership (site belongs to this client)
+    if (site.clientId.toString() !== req.user.clientId.toString()) {
+      return res.status(403).json({
+        message: "Forbidden: You don't have permission to delete this site"
+      });
+    }
+
+    // 3️⃣ Check if site is assigned to any users (Optional - based on your business logic)
+    const assignedPMs = await ProjectManager.countDocuments({
+      assignedSites: id
+    });
+
+    const assignedSupervisors = await Supervisor.countDocuments({
+      siteId: id
+    });
+
+    if (assignedPMs > 0 || assignedSupervisors > 0) {
+      return res.status(400).json({
+        message: `Cannot delete site. It is assigned to ${assignedPMs} project manager(s) and ${assignedSupervisors} supervisor(s).`,
+        assignedPMs,
+        assignedSupervisors
+      });
+    }
+
+    // 4️⃣ Delete the site
+    await Site.findByIdAndDelete(id);
+
+    res.json({
+      message: "Site deleted successfully",
+      deletedSite: site,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
 export const toggleUser = async (req, res) => {
   const user = await ProjectManager.findById(req.params.id);
@@ -334,10 +518,10 @@ export const getDevices = async (req, res) => {
 export const getReports = async (req, res, next) => {
   try {
     const { startDate, endDate, status, site } = req.query;
-    
+
     // Build query
     const query = { clientId: req.user.clientId };
-    
+
     // Date filter
     if (startDate && endDate) {
       query.createdAt = {
@@ -345,42 +529,42 @@ export const getReports = async (req, res, next) => {
         $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999))
       };
     }
-    
+
     // Status filter
     if (status && status !== 'All Status') {
       query.status = status;
     }
-    
+
     // Site filter
     if (site && site !== 'All Sites') {
       query.site = site;
     }
-    
+
     const trips = await Trip.find(query).sort({ createdAt: -1 });
-    
+
     res.json(
       trips.map((trip) => ({
         id: trip._id,
         vehicleNumber: trip.vehicleNumber,
-        entryTime: trip.entryTime 
+        entryTime: trip.entryTime
           ? new Date(trip.entryTime).toLocaleString('en-IN', {
-              day: '2-digit',
-              month: '2-digit',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true
-            })
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+          })
           : '-',
-        exitTime: trip.exitTime 
+        exitTime: trip.exitTime
           ? new Date(trip.exitTime).toLocaleString('en-IN', {
-              day: '2-digit',
-              month: '2-digit',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true
-            })
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+          })
           : '-',
         status: trip.status || 'Active',
         site: trip.site || '-'
@@ -398,10 +582,10 @@ export const getReports = async (req, res, next) => {
 export const exportReports = async (req, res, next) => {
   try {
     const { startDate, endDate, status, site } = req.query;
-    
+
     // Build query
     const query = { clientId: req.user.clientId };
-    
+
     // Date filter
     if (startDate && endDate) {
       query.createdAt = {
@@ -409,23 +593,23 @@ export const exportReports = async (req, res, next) => {
         $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999))
       };
     }
-    
+
     // Status filter
     if (status && status !== 'All Status') {
       query.status = status;
     }
-    
+
     // Site filter
     if (site && site !== 'All Sites') {
       query.site = site;
     }
-    
+
     const trips = await Trip.find(query).sort({ createdAt: -1 });
-    
+
     // Create Excel workbook
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Trips Report');
-    
+
     // Define columns
     worksheet.columns = [
       { header: 'Trip ID', key: 'tripId', width: 25 },
@@ -434,7 +618,7 @@ export const exportReports = async (req, res, next) => {
       { header: 'Exit Time', key: 'exitTime', width: 25 },
       { header: 'Status', key: 'status', width: 15 }
     ];
-    
+
     // Style header row
     worksheet.getRow(1).font = { bold: true, size: 12 };
     worksheet.getRow(1).fill = {
@@ -444,36 +628,36 @@ export const exportReports = async (req, res, next) => {
     };
     worksheet.getRow(1).font = { ...worksheet.getRow(1).font, color: { argb: 'FFFFFFFF' } };
     worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
-    
+
     // Add data rows
     trips.forEach((trip) => {
       worksheet.addRow({
         tripId: trip._id.toString(),
         vehicleNumber: trip.vehicleNumber,
-        entryTime: trip.entryTime 
+        entryTime: trip.entryTime
           ? new Date(trip.entryTime).toLocaleString('en-IN', {
-              day: '2-digit',
-              month: '2-digit',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true
-            })
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+          })
           : '-',
-        exitTime: trip.exitTime 
+        exitTime: trip.exitTime
           ? new Date(trip.exitTime).toLocaleString('en-IN', {
-              day: '2-digit',
-              month: '2-digit',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true
-            })
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+          })
           : '-',
         status: trip.status || 'Active'
       });
     });
-    
+
     // Add borders to all cells
     worksheet.eachRow((row, rowNumber) => {
       row.eachCell((cell) => {
@@ -483,14 +667,14 @@ export const exportReports = async (req, res, next) => {
           bottom: { style: 'thin' },
           right: { style: 'thin' }
         };
-        
+
         // Center align all cells except Trip ID
         if (cell.col !== 1) {
           cell.alignment = { vertical: 'middle', horizontal: 'center' };
         }
       });
     });
-    
+
     // Set response headers
     res.setHeader(
       'Content-Type',
@@ -500,11 +684,11 @@ export const exportReports = async (req, res, next) => {
       'Content-Disposition',
       `attachment; filename=trips_report_${Date.now()}.xlsx`
     );
-    
+
     // Write to response
     await workbook.xlsx.write(res);
     res.end();
-    
+
   } catch (err) {
     console.error('Export reports error:', err);
     next(err);
