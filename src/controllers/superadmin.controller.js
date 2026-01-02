@@ -11,7 +11,7 @@ import { comparePassword, hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 
 /* ======================================================
-   DASHBOARD
+   DASHBOARD - Updated for Device Model with devicetype field
 ====================================================== */
 export const dashboardOverview = async (req, res, next) => {
   try {
@@ -22,10 +22,42 @@ export const dashboardOverview = async (req, res, next) => {
     });
 
     const totalSites = await Site.countDocuments();
+    
+    // Total devices (ANPR + BARRIER)
     const totalDevices = await Device.countDocuments();
     const activeDevices = await Device.countDocuments({ isEnabled: true });
-    const onlineDevices = await Device.countDocuments({ isOnline: true });
-    const offlineDevices = await Device.countDocuments({ isOnline: false });
+    
+    // ANPR devices stats
+    const totalANPRDevices = await Device.countDocuments({ devicetype: "ANPR" });
+    const onlineANPRDevices = await Device.countDocuments({ 
+      devicetype: "ANPR", 
+      isOnline: true 
+    });
+    const offlineANPRCount = await Device.countDocuments({ 
+      devicetype: "ANPR", 
+      isOnline: false 
+    });
+
+    const offlineANPRList = await Device.find(
+      { devicetype: "ANPR", isOnline: false },
+      { serialNo: 1, siteId: 1, lastActive: 1, ipAddress: 1 }
+    ).populate("siteId", "name");
+
+    // BARRIER devices stats
+    const totalBarriers = await Device.countDocuments({ devicetype: "BARRIER" });
+    const onlineBarriers = await Device.countDocuments({ 
+      devicetype: "BARRIER", 
+      isOnline: true 
+    });
+    const offlineBarriersCount = await Device.countDocuments({ 
+      devicetype: "BARRIER", 
+      isOnline: false 
+    });
+
+    const offlineBarrierList = await Device.find(
+      { devicetype: "BARRIER", isOnline: false },
+      { serialNo: 1, siteId: 1, lastActive: 1, ipAddress: 1 }
+    ).populate("siteId", "name");
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -44,16 +76,27 @@ export const dashboardOverview = async (req, res, next) => {
         totalSites,
         totalDevices,
         activeDevices,
+        totalANPRDevices,
+        totalBarriers,
         todayTrips,
       },
       deviceHealth: {
-        online: onlineDevices,
-        offline: offlineDevices,
+        online: onlineANPRDevices,
+        offline: offlineANPRCount,
+        offlineDevices: offlineANPRList,
+      },
+      barrierHealth: {
+        online: onlineBarriers,
+        offline: offlineBarriersCount,
+        offlineBarriers: offlineBarrierList,
       },
       systemHealth: {
         server: "Operational",
         database: "Healthy",
-        connectivity: offlineDevices > 0 ? "Degraded" : "Operational",
+        connectivity:
+          offlineANPRCount > 0 || offlineBarriersCount > 0 
+            ? "Degraded" 
+            : "Operational",
       },
     });
   } catch (e) {
@@ -289,7 +332,7 @@ export const toggleDevice = async (req, res, next) => {
     await device.save();
 
     await logAudit({ req, action: "TOGGLE", module: "DEVICE", newValue: device });
-    
+
     // Return formatted response
     const formatted = {
       _id: device._id,
@@ -300,7 +343,7 @@ export const toggleDevice = async (req, res, next) => {
       isEnabled: device.isEnabled,
       isOnline: device.isOnline
     };
-    
+
     res.json(formatted);
   } catch (e) {
     next(e);
