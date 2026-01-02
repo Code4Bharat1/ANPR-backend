@@ -7,6 +7,7 @@ import { hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 import { Parser } from "json2csv";
 import ExcelJS from "exceljs";
+import mongoose from "mongoose";
 
 
 /**
