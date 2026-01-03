@@ -13,6 +13,13 @@ const schema = new mongoose.Schema(
     shiftStart: String, // "08:00"
     shiftEnd: String,   // "16:00"
     isActive: { type: Boolean, default: true },
+    
+status: {
+      type: String,
+      enum: ["Active", "Inactive"],
+      default: "Active",
+    },
+
   },
   { timestamps: true }
 );

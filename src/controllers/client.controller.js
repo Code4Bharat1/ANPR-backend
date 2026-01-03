@@ -121,7 +121,6 @@ export const toggleClient = async (req, res, next) => {
   }
 };
 
-
 export const getClientDashboard = async (req, res, next) => {
   try {
     const clientId = req.user.clientId;
@@ -135,8 +134,6 @@ export const getClientDashboard = async (req, res, next) => {
       totalSites,
       projectManagers,
       supervisors,
-      totalDevices,
-      activeDevices,
       todayEntries,
       todayExits,
       clientData
@@ -144,8 +141,6 @@ export const getClientDashboard = async (req, res, next) => {
       Site.countDocuments({ clientId }),
       ProjectManager.countDocuments({ clientId }),
       Supervisor.countDocuments({ clientId }),
-      Device.countDocuments({ clientId }),
-      Device.countDocuments({ clientId, status: "Active" }),
 
       Trip.countDocuments({
         clientId,
@@ -160,6 +155,19 @@ export const getClientDashboard = async (req, res, next) => {
       Client.findById(clientId)
     ]);
 
+    // ✅ DEVICE LOGIC — FIXED
+    const totalDevices = await Device.countDocuments({ clientId });
+
+    const activeDevices = await Device.countDocuments({
+      clientId,
+      isEnabled: true
+    });
+
+    const inactiveDevices = await Device.countDocuments({
+      clientId,
+      isEnabled: false
+    });
+
     const recentActivity = await Trip.find({ clientId })
       .sort({ createdAt: -1 })
       .limit(10)
@@ -171,12 +179,15 @@ export const getClientDashboard = async (req, res, next) => {
       totalProjectManagers: projectManagers,
       totalSupervisors: supervisors,
       totalUsers: projectManagers + supervisors,
+
       totalDevices,
       activeDevices,
-      inactiveDevices: totalDevices - activeDevices,
+      inactiveDevices,
+
       todayEntries,
       todayExits,
       todayTotal: todayEntries + todayExits,
+
       recentActivity: recentActivity.map(trip => ({
         vehicleNumber: trip.plateText,
         site: trip.siteId?.name,
@@ -184,6 +195,7 @@ export const getClientDashboard = async (req, res, next) => {
         exitTime: trip.exitAt,
         status: trip.status
       })),
+
       lastUpdated: new Date().toISOString()
     });
   } catch (err) {
@@ -317,19 +329,55 @@ export const listUsers = async (req, res, next) => {
   }
 };
 
-export const toggleUserStatus = async (req, res, next) => {
+export const togglePMStatus = async (req, res, next) => {
   try {
     const { status } = req.body;
+    const { id } = req.params ;
+
+
 
     // Check if req.user exists
     if (!req.user || !req.user.clientId) {
       return res.status(401).json({ message: "Authentication failed" });
     }
 
-    const user = await User.findOne({
-      _id: req.params.id,
-      clientId: req.user.clientId // Ensure user belongs to same client
+    const user = await ProjectManager.findOne({
+      _id: id,
     });
+
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    user.status = status;
+    await user.save();
+
+    res.json({
+      message: "User status updated",
+      status: user.status,
+    });
+  } catch (err) {
+    console.error('Toggle status error:', err);
+    next(err);
+  }
+};
+export const toggleSupervisorStatus = async (req, res, next) => {
+  try {
+    const { status } = req.body;
+    const { id } = req.params ;
+
+
+
+    // Check if req.user exists
+    if (!req.user || !req.user.clientId) {
+      return res.status(401).json({ message: "Authentication failed" });
+    }
+
+    const user = await Supervisor.findOne({
+      _id: id,
+    });
+
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });

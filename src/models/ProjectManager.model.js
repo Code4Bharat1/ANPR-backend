@@ -55,6 +55,12 @@ const ProjectManagerSchema = new mongoose.Schema(
   },
 },
 
+status: {
+      type: String,
+      enum: ["Active", "Inactive"],
+      default: "Active",
+    },
+
 
     assignedSites: [
       { type: mongoose.Schema.Types.ObjectId, ref: "Site" },

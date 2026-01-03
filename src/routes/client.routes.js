@@ -19,14 +19,15 @@ import {
   getMyProfile,
   createusers,
   listUsers,
-  toggleUserStatus,
   exportReports,
   getSettings,
   updateSettings,
   updateMyProfile,
   deleteSite,
   updateSite,
-  getProjectManagers
+  getProjectManagers,
+  togglePMStatus,
+  toggleSupervisorStatus
 
 } from "../controllers/client.controller.js";
 
@@ -117,8 +118,12 @@ router.post("/users",verifyAccessToken,                    // 🔥 MUST
 router.get("/users", verifyAccessToken,                    // 🔥 MUST
   authorizeRoles("client", "admin"),listUsers);
 
-router.patch("/users/:id/status",verifyAccessToken,                    // 🔥 MUST
-  authorizeRoles("client", "admin"), toggleUserStatus);
+router.patch("/pm/:id/status",verifyAccessToken,                    // 🔥 MUST
+  authorizeRoles("client", "admin"), togglePMStatus);
+
+
+  router.patch("/supervisor/:id/status",verifyAccessToken,                    // 🔥 MUST
+  authorizeRoles("client", "admin"), toggleSupervisorStatus);
 
 router.post(
   "/sites",
