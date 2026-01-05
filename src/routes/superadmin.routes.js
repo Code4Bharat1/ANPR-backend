@@ -48,10 +48,12 @@ router.patch("/devices/:id/toggle", ...guard, SA.toggleDevice);
 // Profile
 router.get("/profile", ...guard, SA.getProfile);
 router.patch("/profile/change-password", ...guard, SA.changePassword);
+router.put("/profile", ...guard, SA.updateProfile);
+
 
 // Settings
 router.get("/settings", ...guard, SA.getSettings);
-router.patch("/settings", ...guard, SA.updateSettings);
+router.put("/settings", ...guard, SA.updateSettings);
 
 
 // Notifications

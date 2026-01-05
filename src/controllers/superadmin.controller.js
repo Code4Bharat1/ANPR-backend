@@ -22,20 +22,20 @@ export const dashboardOverview = async (req, res, next) => {
     });
 
     const totalSites = await Site.countDocuments();
-    
+
     // Total devices (ANPR + BARRIER)
     const totalDevices = await Device.countDocuments();
     const activeDevices = await Device.countDocuments({ isEnabled: true });
-    
+
     // ANPR devices stats
     const totalANPRDevices = await Device.countDocuments({ devicetype: "ANPR" });
-    const onlineANPRDevices = await Device.countDocuments({ 
-      devicetype: "ANPR", 
-      isOnline: true 
+    const onlineANPRDevices = await Device.countDocuments({
+      devicetype: "ANPR",
+      isOnline: true
     });
-    const offlineANPRCount = await Device.countDocuments({ 
-      devicetype: "ANPR", 
-      isOnline: false 
+    const offlineANPRCount = await Device.countDocuments({
+      devicetype: "ANPR",
+      isOnline: false
     });
 
     const offlineANPRList = await Device.find(
@@ -45,13 +45,13 @@ export const dashboardOverview = async (req, res, next) => {
 
     // BARRIER devices stats
     const totalBarriers = await Device.countDocuments({ devicetype: "BARRIER" });
-    const onlineBarriers = await Device.countDocuments({ 
-      devicetype: "BARRIER", 
-      isOnline: true 
+    const onlineBarriers = await Device.countDocuments({
+      devicetype: "BARRIER",
+      isOnline: true
     });
-    const offlineBarriersCount = await Device.countDocuments({ 
-      devicetype: "BARRIER", 
-      isOnline: false 
+    const offlineBarriersCount = await Device.countDocuments({
+      devicetype: "BARRIER",
+      isOnline: false
     });
 
     const offlineBarrierList = await Device.find(
@@ -94,8 +94,8 @@ export const dashboardOverview = async (req, res, next) => {
         server: "Operational",
         database: "Healthy",
         connectivity:
-          offlineANPRCount > 0 || offlineBarriersCount > 0 
-            ? "Degraded" 
+          offlineANPRCount > 0 || offlineBarriersCount > 0
+            ? "Degraded"
             : "Operational",
       },
     });
@@ -109,44 +109,101 @@ export const dashboardOverview = async (req, res, next) => {
 ====================================================== */
 export const analyticsSummary = async (req, res, next) => {
   try {
-    const totalTrips = await Trip.countDocuments();
-    const activeClients = await Client.countDocuments({ isActive: true });
+    const period = req.query.period || "7d";
+    const { from, to } = getDateRange(period);
+
+    const [
+      totalTrips,
+      totalClients,
+      totalSites,
+      totalDevices
+    ] = await Promise.all([
+      Trip.countDocuments({ createdAt: { $gte: from, $lte: to } }),
+      Client.countDocuments({ isActive: true }),
+      Site.countDocuments(),
+      Device.countDocuments()
+    ]);
+
+    const topClients = await Trip.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      { $group: { _id: "$clientId", trips: { $sum: 1 } } },
+      { $sort: { trips: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: "clients",
+          localField: "_id",
+          foreignField: "_id",
+          as: "client"
+        }
+      },
+      { $unwind: "$client" },
+      {
+        $project: {
+          name: "$client.name",
+          trips: 1,
+          sites: { $size: "$client.sites" },
+          devices: 1
+        }
+      }
+    ]);
 
     res.json({
       totalTrips,
-      revenue: 0,
-      activeClients,
+      totalClients,
+      totalSites,
+      totalDevices,
+      totalRevenue: 0,
       growth: { trips: 12, revenue: 8, clients: 0 },
+      topClients
     });
   } catch (e) {
     next(e);
   }
 };
 
+
 export const tripVolumeDaily = async (req, res, next) => {
   try {
-    const days = 7;
-    const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const period = req.query.period || "7d";
+    const { from, to } = getDateRange(period);
+
+    const format = period === "today" ? "%H:00" : "%Y-%m-%d";
 
     const data = await Trip.aggregate([
-      { $match: { createdAt: { $gte: from } } },
+      { $match: { createdAt: { $gte: from, $lte: to } } },
       {
         $group: {
-          _id: {
-            y: { $year: "$createdAt" },
-            m: { $month: "$createdAt" },
-            d: { $dayOfMonth: "$createdAt" },
-          },
-          count: { $sum: 1 },
-        },
+          _id: { $dateToString: { format, date: "$createdAt" } },
+          count: { $sum: 1 }
+        }
       },
-      { $sort: { "_id.y": 1, "_id.m": 1, "_id.d": 1 } },
+      { $sort: { _id: 1 } }
     ]);
 
+    res.json(data.map(d => ({ date: d._id, trips: d.count })));
+  } catch (e) {
+    next(e);
+  }
+};
+
+
+export const clientDistribution = async (req, res, next) => {
+  try {
+    const period = req.query.period || "7d";
+    const { from, to } = getDateRange(period);
+
+    const dist = await Client.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      { $group: { _id: "$packageType", count: { $sum: 1 } } }
+    ]);
+
+    const total = dist.reduce((a, b) => a + b.count, 0) || 1;
+
     res.json(
-      data.map((x) => ({
-        date: `${x._id.y}-${x._id.m}-${x._id.d}`,
-        trips: x.count,
+      dist.map(d => ({
+        label: d._id || "Others",
+        percent: Math.round((d.count / total) * 100)
       }))
     );
   } catch (e) {
@@ -154,23 +211,36 @@ export const tripVolumeDaily = async (req, res, next) => {
   }
 };
 
-export const clientDistribution = async (req, res, next) => {
-  try {
-    const dist = await Client.aggregate([
-      { $group: { _id: "$packageType", count: { $sum: 1 } } },
-    ]);
+const getDateRange = (period = "7d") => {
+  const now = new Date();
+  let from = new Date();
 
-    const total = dist.reduce((a, b) => a + b.count, 0) || 1;
+  switch (period) {
+    case "today":
+      from.setHours(0, 0, 0, 0);
+      break;
 
-    res.json(
-      dist.map((d) => ({
-        label: d._id || "Others",
-        percent: Math.round((d.count / total) * 100),
-      }))
-    );
-  } catch (e) {
-    next(e);
+    case "7d":
+      from.setDate(now.getDate() - 7);
+      break;
+
+    case "30d":
+      from.setDate(now.getDate() - 30);
+      break;
+
+    case "90d":
+      from.setDate(now.getDate() - 90);
+      break;
+
+    case "month":
+      from = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+
+    default:
+      from.setDate(now.getDate() - 7);
   }
+
+  return { from, to: now };
 };
 
 /* ======================================================
@@ -211,14 +281,35 @@ export const createClient = async (req, res, next) => {
   }
 };
 
+
 export const listClients = async (req, res, next) => {
   try {
-    const clients = await Client.find().sort({ createdAt: -1 });
-    res.json(clients);
+    const clients = await Client.find()
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const clientIds = clients.map(c => c._id);
+
+    const sites = await Site.find({ clientId: { $in: clientIds } })
+      .select("_id name clientId")
+      .lean();
+
+    const clientsWithSites = clients.map(client => ({
+      ...client,
+      sites: sites.filter(
+        site => String(site.clientId) === String(client._id)
+      ),
+      siteCount: sites.filter(
+        site => String(site.clientId) === String(client._id)
+      ).length
+    }));
+
+    res.json(clientsWithSites);
   } catch (e) {
     next(e);
   }
 };
+
 
 export const updateClient = async (req, res, next) => {
   try {
@@ -268,13 +359,13 @@ export const getAllSites = async (req, res, next) => {
     const sitesWithStats = await Promise.all(
       sites.map(async (site) => {
         const deviceCount = await Device.countDocuments({ siteId: site._id });
-        const activeDeviceCount = await Device.countDocuments({ 
-          siteId: site._id, 
-          isEnabled: true 
+        const activeDeviceCount = await Device.countDocuments({
+          siteId: site._id,
+          isEnabled: true
         });
-        const onlineDeviceCount = await Device.countDocuments({ 
-          siteId: site._id, 
-          isOnline: true 
+        const onlineDeviceCount = await Device.countDocuments({
+          siteId: site._id,
+          isOnline: true
         });
 
         return {
@@ -505,9 +596,9 @@ export const getSitesByClient = async (req, res, next) => {
     const sitesWithStats = await Promise.all(
       sites.map(async (site) => {
         const deviceCount = await Device.countDocuments({ siteId: site._id });
-        const activeDeviceCount = await Device.countDocuments({ 
-          siteId: site._id, 
-          isEnabled: true 
+        const activeDeviceCount = await Device.countDocuments({
+          siteId: site._id,
+          isEnabled: true
         });
 
         return {
@@ -577,17 +668,25 @@ export const deviceStats = async (req, res, next) => {
 export const listDevices = async (req, res) => {
   try {
     const devices = await Device.find()
-      .populate("clientId", "name")
+      .populate("clientId", "companyName")
+      .populate("siteId", "name")
       .lean();
 
     const formatted = devices.map(d => ({
       _id: d._id,
-      name: d.serialNo,                  // 👈 UI needs name
-      deviceId: d.serialNo,              // 👈 UI uses deviceId
-      type: d.devicetype,                // 👈 UI uses type
+      name: d.serialNo,
+      deviceId: d.serialNo,
+      type: d.devicetype,
       status: d.isOnline ? "online" : "offline",
-      clientName: d.clientId?.name || "Not Assigned",
-      siteName: "Not Assigned",
+
+      // ✅ VERY IMPORTANT (Edit modal ke liye)
+      clientId: d.clientId?._id,
+      siteId: d.siteId?._id,
+
+      // ✅ Card view ke liye
+      clientName: d.clientId?.companyName || "Not Assigned",
+      siteName: d.siteId?.name || "Not Assigned",
+
       lastActive: d.updatedAt
     }));
 
@@ -659,45 +758,62 @@ export const updateDevice = async (req, res, next) => {
     const { id } = req.params;
     const { deviceType, serialNumber, clientId, siteId, ipAddress, notes } = req.body;
 
-    // Find the device by ID
+    // 1️⃣ Find device
     const device = await Device.findById(id);
     if (!device) {
       return res.status(404).json({ message: "Device not found" });
     }
 
-    // Update the device properties (ensure siteId is included)
-    device.devicetype = deviceType || device.devicetype;
-    device.serialNo = serialNumber || device.serialNo;
-    device.clientId = clientId || device.clientId;
-    device.siteId = siteId || device.siteId; // Ensure siteId is included
-    device.ipAddress = ipAddress || device.ipAddress;
-    device.notes = notes || device.notes;
+    // 2️⃣ Store old value (for audit)
+    const oldValue = device.toObject();
 
-    // Save updated device
+    // 3️⃣ Update fields safely
+    if (deviceType) device.devicetype = deviceType.toUpperCase();
+    if (serialNumber) device.serialNo = serialNumber;
+
+    if (clientId === "") device.clientId = null;
+    else if (clientId) device.clientId = clientId;
+
+    if (siteId === "") device.siteId = null;
+    else if (siteId) device.siteId = siteId;
+
+    if (ipAddress !== undefined) device.ipAddress = ipAddress;
+    if (notes !== undefined) device.notes = notes;
+
     await device.save();
 
-    // Log audit action
+    // 4️⃣ Populate with CORRECT FIELD
+    const populatedDevice = await Device.findById(device._id)
+      .populate("clientId", "companyName") // ✅ FIX
+      .populate("siteId", "name");
+
+    // 5️⃣ Audit log
     await logAudit({
       req,
       action: "UPDATE",
       module: "DEVICE",
-      oldValue: device,
-      newValue: req.body,
+      oldValue,
+      newValue: populatedDevice.toObject(),
     });
 
-    // Return the updated device response
-    const formattedDevice = {
-      _id: device._id,
-      name: device.serialNo,
-      deviceId: device.serialNo,
-      type: device.devicetype,
-      status: device.isOnline ? "online" : "offline",
-      clientName: device.clientId?.name || "Not Assigned",
-      siteName: device.siteId?.name || "Not Assigned",
-      lastActive: device.updatedAt,
-    };
+    // 6️⃣ UI-friendly response
+    res.json({
+      _id: populatedDevice._id,
+      name: populatedDevice.serialNo,
+      deviceId: populatedDevice.serialNo,
+      type: populatedDevice.devicetype,
+      status: populatedDevice.isOnline ? "online" : "offline",
 
-    res.json(formattedDevice);
+      clientId: populatedDevice.clientId?._id,
+      siteId: populatedDevice.siteId?._id,
+
+      // ✅ NOW THIS WILL SHOW IN CARD
+      clientName: populatedDevice.clientId?.companyName || "Not Assigned",
+      siteName: populatedDevice.siteId?.name || "Not Assigned",
+
+      lastActive: populatedDevice.updatedAt,
+    });
+
   } catch (e) {
     next(e);
   }
@@ -716,59 +832,26 @@ export const getProfile = async (req, res, next) => {
   }
 };
 
-/* ======================================================
-   GET SETTINGS (GLOBAL)
-====================================================== */
-export const getSettings = async (req, res, next) => {
+export const updateProfile = async (req, res, next) => {
   try {
-    let settings = await AppSettings.findOne();
+    const { fullName, phone, location } = req.body;
 
-    if (!settings) {
-      settings = await AppSettings.create({});
-    }
+    const admin = await SuperAdmin.findByIdAndUpdate(
+      req.user.id,
+      { fullName, phone, location },
+      { new: true }
+    ).select("-password");
 
     res.json({
       success: true,
-      data: settings,
+      message: "Profile updated successfully",
+      data: admin,
     });
   } catch (e) {
     next(e);
   }
 };
 
-/* ======================================================
-   UPDATE SETTINGS (GLOBAL)
-====================================================== */
-export const updateSettings = async (req, res, next) => {
-  try {
-    let settings = await AppSettings.findOne();
-
-    if (!settings) {
-      settings = await AppSettings.create({});
-    }
-
-    const oldValue = settings.toObject();
-
-    Object.assign(settings, req.body);
-    await settings.save();
-
-    await logAudit({
-      req,
-      action: "UPDATE",
-      module: "SETTINGS",
-      oldValue,
-      newValue: settings,
-    });
-
-    res.json({
-      success: true,
-      message: "Settings updated successfully",
-      data: settings,
-    });
-  } catch (e) {
-    next(e);
-  }
-};
 /**
  * CHANGE PASSWORD
  */
@@ -809,6 +892,74 @@ export const changePassword = async (req, res, next) => {
     next(err);
   }
 };
+
+
+/* ======================================================
+   GET SETTINGS
+====================================================== */
+export const getSettings = async (req, res, next) => {
+  try {
+    let settings = await AppSettings.findOne();
+
+    if (!settings) {
+      settings = await AppSettings.create({});
+    }
+
+    res.json({
+      success: true,
+      data: {
+        maintenanceMode: settings.maintenanceMode,
+        allowSuperAdminRegister: settings.allowSuperAdminRegister,
+        defaultRetentionDays: settings.defaultRetentionDays,
+        supportEmail: settings.supportEmail,
+        supportPhone: settings.supportPhone,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/* ======================================================
+   UPDATE SETTINGS
+====================================================== */
+export const updateSettings = async (req, res, next) => {
+  try {
+    let settings = await AppSettings.findOne();
+
+    if (!settings) {
+      settings = await AppSettings.create({});
+    }
+
+    const oldValue = settings.toObject();
+
+    settings.maintenanceMode =
+      req.body.maintenanceMode ?? settings.maintenanceMode;
+
+    settings.allowSuperAdminRegister =
+      req.body.allowSuperAdminRegister ?? settings.allowSuperAdminRegister;
+
+    settings.defaultRetentionDays =
+      req.body.defaultRetentionDays ?? settings.defaultRetentionDays;
+
+    settings.supportEmail =
+      req.body.supportEmail ?? settings.supportEmail;
+
+    settings.supportPhone =
+      req.body.supportPhone ?? settings.supportPhone;
+
+    await settings.save();
+
+    res.json({
+      success: true,
+      message: "Settings updated successfully",
+      data: settings,
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 
 /* ======================================================
    NOTIFICATIONS
