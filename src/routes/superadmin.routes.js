@@ -43,6 +43,7 @@ router.get("/devices", ...guard, SA.listDevices);
 router.get("/devices/:id", ...guard, SA.getDeviceById); // optional
 router.put("/devices/:id", ...guard, SA.updateDevice);  // optional
 router.patch("/devices/:id/toggle", ...guard, SA.toggleDevice);
+router.delete("/devices/:id", ...guard, SA.deleteDevice); 
 
 
 // Profile

@@ -162,7 +162,6 @@ export const analyticsSummary = async (req, res, next) => {
   }
 };
 
-
 export const tripVolumeDaily = async (req, res, next) => {
   try {
     const period = req.query.period || "7d";
@@ -186,7 +185,6 @@ export const tripVolumeDaily = async (req, res, next) => {
     next(e);
   }
 };
-
 
 export const clientDistribution = async (req, res, next) => {
   try {
@@ -281,7 +279,6 @@ export const createClient = async (req, res, next) => {
   }
 };
 
-
 export const listClients = async (req, res, next) => {
   try {
     const clients = await Client.find()
@@ -309,7 +306,6 @@ export const listClients = async (req, res, next) => {
     next(e);
   }
 };
-
 
 export const updateClient = async (req, res, next) => {
   try {
@@ -342,8 +338,6 @@ export const deactivateClient = async (req, res, next) => {
     next(e);
   }
 };
-
-
 
 /* ======================================================
    SUPER ADMIN - SITES MANAGEMENT
@@ -618,6 +612,7 @@ export const getSitesByClient = async (req, res, next) => {
     next(e);
   }
 };
+
 /* ======================================================
    DEVICE MANAGEMENT
 ====================================================== */
@@ -639,8 +634,8 @@ export const createDevice = async (req, res) => {
     const device = await Device.create({
       clientId,
       siteId,
-      devicetype: deviceType.toUpperCase(), // ✅ FIX
-      serialNo: serialNumber,               // ✅ FIX
+      devicetype: deviceType.toUpperCase(),
+      serialNo: serialNumber,
     });
 
     res.status(201).json({
@@ -652,7 +647,6 @@ export const createDevice = async (req, res) => {
     res.status(500).json({ message: "Failed to create device" });
   }
 };
-
 
 export const deviceStats = async (req, res, next) => {
   try {
@@ -679,11 +673,9 @@ export const listDevices = async (req, res) => {
       type: d.devicetype,
       status: d.isOnline ? "online" : "offline",
 
-      // ✅ VERY IMPORTANT (Edit modal ke liye)
       clientId: d.clientId?._id,
       siteId: d.siteId?._id,
 
-      // ✅ Card view ke liye
       clientName: d.clientId?.companyName || "Not Assigned",
       siteName: d.siteId?.name || "Not Assigned",
 
@@ -697,17 +689,15 @@ export const listDevices = async (req, res) => {
   }
 };
 
-
 export const toggleDevice = async (req, res, next) => {
   try {
     const device = await Device.findById(req.params.id);
     device.isEnabled = !device.isEnabled;
-    device.isOnline = device.isEnabled; // ✅ Sync both fields
+    device.isOnline = device.isEnabled;
     await device.save();
 
     await logAudit({ req, action: "TOGGLE", module: "DEVICE", newValue: device });
 
-    // Return formatted response
     const formatted = {
       _id: device._id,
       name: device.serialNo,
@@ -723,20 +713,19 @@ export const toggleDevice = async (req, res, next) => {
     next(e);
   }
 };
+
 export const getDeviceById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // Fetch device by ID
     const device = await Device.findById(id)
-      .populate("clientId", "name")  // Populate client name
-      .populate("siteId", "name");  // Populate site name (if needed)
+      .populate("clientId", "name")
+      .populate("siteId", "name");
 
     if (!device) {
       return res.status(404).json({ message: "Device not found" });
     }
 
-    // Format response data
     const formattedDevice = {
       _id: device._id,
       name: device.serialNo,
@@ -753,21 +742,19 @@ export const getDeviceById = async (req, res, next) => {
     next(e);
   }
 };
+
 export const updateDevice = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { deviceType, serialNumber, clientId, siteId, ipAddress, notes } = req.body;
 
-    // 1️⃣ Find device
     const device = await Device.findById(id);
     if (!device) {
       return res.status(404).json({ message: "Device not found" });
     }
 
-    // 2️⃣ Store old value (for audit)
     const oldValue = device.toObject();
 
-    // 3️⃣ Update fields safely
     if (deviceType) device.devicetype = deviceType.toUpperCase();
     if (serialNumber) device.serialNo = serialNumber;
 
@@ -782,12 +769,10 @@ export const updateDevice = async (req, res, next) => {
 
     await device.save();
 
-    // 4️⃣ Populate with CORRECT FIELD
     const populatedDevice = await Device.findById(device._id)
-      .populate("clientId", "companyName") // ✅ FIX
+      .populate("clientId", "companyName")
       .populate("siteId", "name");
 
-    // 5️⃣ Audit log
     await logAudit({
       req,
       action: "UPDATE",
@@ -796,7 +781,6 @@ export const updateDevice = async (req, res, next) => {
       newValue: populatedDevice.toObject(),
     });
 
-    // 6️⃣ UI-friendly response
     res.json({
       _id: populatedDevice._id,
       name: populatedDevice.serialNo,
@@ -807,7 +791,6 @@ export const updateDevice = async (req, res, next) => {
       clientId: populatedDevice.clientId?._id,
       siteId: populatedDevice.siteId?._id,
 
-      // ✅ NOW THIS WILL SHOW IN CARD
       clientName: populatedDevice.clientId?.companyName || "Not Assigned",
       siteName: populatedDevice.siteId?.name || "Not Assigned",
 
@@ -819,6 +802,50 @@ export const updateDevice = async (req, res, next) => {
   }
 };
 
+// ✅ DELETE DEVICE FUNCTION
+export const deleteDevice = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const device = await Device.findById(id)
+      .populate("clientId", "companyName")
+      .populate("siteId", "name");
+
+    if (!device) {
+      return res.status(404).json({
+        success: false,
+        message: "Device not found"
+      });
+    }
+
+    const deletedDevice = device.toObject();
+
+    await Device.findByIdAndDelete(id);
+
+    await logAudit({
+      req,
+      action: "DELETE",
+      module: "DEVICE",
+      oldValue: deletedDevice,
+      newValue: null
+    });
+
+    res.json({
+      success: true,
+      message: "Device deleted successfully",
+      data: {
+        _id: deletedDevice._id,
+        name: deletedDevice.serialNo,
+        deviceId: deletedDevice.serialNo,
+        type: deletedDevice.devicetype
+      }
+    });
+
+  } catch (e) {
+    console.error("Error deleting device:", e);
+    next(e);
+  }
+};
 
 /* ======================================================
    PROFILE
@@ -852,9 +879,6 @@ export const updateProfile = async (req, res, next) => {
   }
 };
 
-/**
- * CHANGE PASSWORD
- */
 export const changePassword = async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -892,7 +916,6 @@ export const changePassword = async (req, res, next) => {
     next(err);
   }
 };
-
 
 /* ======================================================
    GET SETTINGS
@@ -959,7 +982,6 @@ export const updateSettings = async (req, res, next) => {
     next(e);
   }
 };
-
 
 /* ======================================================
    NOTIFICATIONS
