@@ -8,6 +8,7 @@ import Site from "../models/Site.model.js";
 import Vendor from "../models/Vendor.model.js";
 import DeviceModel from '../models/Device.model.js';
 import supervisorModel from '../models/supervisor.model.js';
+import mongoose from 'mongoose';
 
 
 /**
@@ -137,117 +138,111 @@ export const toggleProjectManager = async (req, res, next) => {
 
 
 
-// Dashboard stats controller - Fixed version
+
+
 export const getDashboardStats = async (req, res) => {
   try {
-    const projectManagerId = req.user.id;
+    const projectManagerId = new mongoose.Types.ObjectId(req.user.id);
 
-    // Basic counts with fallback to 0
-    const totalSites = await Site.countDocuments({ projectManagerId }).catch(() => 0);
-    const totalTrips = await Trip.countDocuments({ projectManagerId }).catch(() => 0);
-    const supervisors = await supervisorModel.countDocuments({ projectManagerId }).catch(() => 0);
+    // 1️⃣ Get PM with assigned sites
+    const pm = await ProjectManager.findById(projectManagerId)
+      .populate({
+        path: "assignedSites",
+        select: "name siteId status",
+      })
+      .lean();
 
-    // Active trips - using common status values
-    const activeTrips = await Trip.countDocuments({ 
-      projectManagerId,
-      status: { $in: ['active', 'in-progress', 'ongoing', 'started'] }
-    }).catch(() => 0);
+    const assignedSites = pm?.assignedSites || [];
+    const siteIds = assignedSites.map((s) => s._id);
 
-    // Active supervisors
-    const activeSupervisors = await supervisorModel.countDocuments({
-      projectManagerId,
-      isActive: true
-    }).catch(() => 0);
+    // 2️⃣ Counts based on assigned sites
+    const [
+      totalSites,
+      totalTrips,
+      supervisors,
+      activeTrips,
+      activeSupervisors,
+      todayTrips,
+      completedTrips,
+    ] = await Promise.all([
+      assignedSites.length,
 
-    // Today's trips
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
+      Trip.countDocuments({ siteId: { $in: siteIds } }),
 
-    const todayTrips = await Trip.countDocuments({
-      projectManagerId,
-      createdAt: { $gte: startOfDay, $lte: endOfDay }
-    }).catch(() => 0);
+      supervisorModel.countDocuments({
+        siteId: { $in: siteIds },
+      }),
 
-    // Completed trips
-    const completedTrips = await Trip.countDocuments({
-      projectManagerId,
-      status: { $in: ['completed', 'finished', 'done', 'closed'] }
-    }).catch(() => 0);
+      Trip.countDocuments({
+        siteId: { $in: siteIds },
+        status: { $in: ["active", "in-progress", "ongoing", "started"] },
+      }),
 
-    // Get sites with details
-    let sitesWithDetails = [];
-    try {
-      const sites = await Site.find({ projectManagerId })
-        .select('name siteId status')
-        .limit(4)
-        .lean();
+      supervisorModel.countDocuments({
+        siteId: { $in: siteIds },
+        isActive: true,
+      }),
 
-      // Get barrier (device) and trip counts for each site
-      sitesWithDetails = await Promise.all(
-        sites.map(async (site) => {
-          try {
-            // Count BARRIER type devices for this site
-            const barriers = await DeviceModel.countDocuments({ 
-              siteId: site._id,
-              devicetype: 'BARRIER',
-              isEnabled: true 
-            }).catch(() => 0);
+      Trip.countDocuments({
+        siteId: { $in: siteIds },
+        createdAt: {
+          $gte: new Date(new Date().setHours(0, 0, 0, 0)),
+          $lte: new Date(new Date().setHours(23, 59, 59, 999)),
+        },
+      }),
 
-            // Count active trips for this site
-            const siteActiveTrips = await Trip.countDocuments({
-              siteId: site._id,
-              status: { $in: ['active', 'in-progress', 'ongoing', 'started'] }
-            }).catch(() => 0);
+      Trip.countDocuments({
+        siteId: { $in: siteIds },
+        status: { $in: ["completed", "finished", "done", "closed"] },
+      }),
+    ]);
 
-            return {
-              id: site.siteId || site._id.toString(),
-              name: site.name || 'Unknown Site',
-              barriers: barriers || 0,
-              activeTrips: siteActiveTrips || 0,
-              status: site.status || 'Operational'
-            };
-          } catch (err) {
-            console.error('Error processing site:', err);
-            return {
-              id: site._id.toString(),
-              name: site.name || 'Unknown Site',
-              barriers: 0,
-              activeTrips: 0,
-              status: 'Unknown'
-            };
-          }
-        })
-      );
-    } catch (err) {
-      console.error('Error fetching sites:', err);
-      sitesWithDetails = [];
-    }
+    // 3️⃣ Site-wise details (max 4)
+    const sitesWithDetails = await Promise.all(
+      assignedSites.slice(0, 4).map(async (site) => {
+        const [barriers, siteActiveTrips] = await Promise.all([
+          DeviceModel.countDocuments({
+            siteId: site._id,
+            devicetype: "BARRIER",
+            isEnabled: true,
+          }),
 
-    const stats = {
-      totalSites: totalSites || 0,
-      totalTrips: totalTrips || 0,
-      supervisors: supervisors || 0,
-      activeTrips: activeTrips || 0,
-      activeSupervisors: activeSupervisors || 0,
-      todayTrips: todayTrips || 0,
-      completedTrips: completedTrips || 0,
-      sites: sitesWithDetails || []
-    };
+          Trip.countDocuments({
+            siteId: site._id,
+            status: { $in: ["active", "in-progress", "ongoing", "started"] },
+          }),
+        ]);
 
-    res.json(stats);
+        return {
+          id: site.siteId || site._id.toString(),
+          name: site.name || "Unknown Site",
+          barriers,
+          activeTrips: siteActiveTrips,
+          status: site.status || "Operational",
+        };
+      })
+    );
+
+    // 4️⃣ Final response
+    res.json({
+      totalSites,
+      totalTrips,
+      supervisors,
+      activeTrips,
+      activeSupervisors,
+      todayTrips,
+      completedTrips,
+      sites: sitesWithDetails,
+    });
+
   } catch (err) {
-    console.error('Error fetching dashboard stats:', err);
-    res.status(500).json({ 
-      message: "Error fetching dashboard stats", 
+    console.error("Error fetching dashboard stats:", err);
+    res.status(500).json({
+      message: "Error fetching dashboard stats",
       error: err.message,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
     });
   }
 };
-
 
 // Alternative version with aggregation pipeline for better performance
 // export const getDashboardStatsOptimized = async (req, res) => {
@@ -256,7 +251,7 @@ export const getDashboardStats = async (req, res) => {
 
 //     const startOfDay = new Date();
 //     startOfDay.setHours(0, 0, 0, 0);
-    
+
 //     const endOfDay = new Date();
 //     endOfDay.setHours(23, 59, 59, 999);
 
@@ -272,27 +267,27 @@ export const getDashboardStats = async (req, res) => {
 //       sitesData
 //     ] = await Promise.all([
 //       Site.countDocuments({ projectManagerId }),
-      
+
 //       Trip.countDocuments({ projectManagerId }),
-      
+
 //       Supervisor.countDocuments({ projectManagerId }),
-      
+
 //       Trip.countDocuments({ 
 //         projectManagerId,
 //         status: { $in: ['in-progress', 'ongoing', 'active'] }
 //       }),
-      
+
 //       Supervisor.countDocuments({
 //         projectManagerId,
 //         isActive: true,
 //         isOnline: true
 //       }),
-      
+
 //       Trip.countDocuments({
 //         projectManagerId,
 //         createdAt: { $gte: startOfDay, $lte: endOfDay }
 //       }),
-      
+
 //       Trip.countDocuments({
 //         projectManagerId,
 //         status: { $in: ['completed', 'finished', 'done'] }
@@ -371,90 +366,180 @@ export const getDashboardStats = async (req, res) => {
 // Sites routes
 export const getMySites = async (req, res) => {
   try {
-    const sites = await Site.find({ projectManagerId: req.user.id });
-    res.json(sites);
+    const pm = await ProjectManager.findById(req.user.id)
+      .populate("assignedSites")
+      .lean();
+
+    res.json(pm?.assignedSites || []);
   } catch (err) {
-    res.status(500).json({ message: "Error fetching sites", err });
+    res.status(500).json({
+      message: "Error fetching sites",
+      error: err.message,
+    });
   }
 };
 
 export const getSiteDetails = async (req, res) => {
   try {
-    const site = await Site.findById(req.params.id).populate("supervisors vendors");
-    if (!site) return res.status(404).json({ message: "Site not found" });
+    const pm = await ProjectManager.findById(req.user.id)
+      .select("assignedSites")
+      .lean();
+
+    const siteId = req.params.id;
+
+    if (!pm?.assignedSites?.some(id => id.toString() === siteId)) {
+      return res.status(403).json({ message: "Access denied to this site" });
+    }
+
+    const site = await Site.findById(siteId)
+      .populate("supervisors vendors");
+
+    if (!site) {
+      return res.status(404).json({ message: "Site not found" });
+    }
+
     res.json(site);
   } catch (err) {
-    res.status(500).json({ message: "Error fetching site details", err });
+    res.status(500).json({
+      message: "Error fetching site details",
+      error: err.message,
+    });
   }
 };
 
 // Supervisor routes
 export const createSupervisor = async (req, res) => {
   try {
-    const { name, email, siteId } = req.body;
+    const { name, email, siteId, password } = req.body;
+
+    // 🔐 Validate site belongs to PM
+    const pm = await ProjectManager.findById(req.user.id)
+      .select("assignedSites")
+      .lean();
+
+    if (!pm?.assignedSites?.some(id => id.toString() === siteId)) {
+      return res.status(403).json({ message: "You cannot assign supervisor to this site" });
+    }
 
     const supervisor = new Supervisor({
       name,
       email,
       siteId,
+      password,
       projectManagerId: req.user.id,
+      // ✅ only site relation
     });
 
-    await supervisor.save();
+
+    await supervisor.populate("siteId", "name");
 
     res.status(201).json(supervisor);
   } catch (err) {
-    res.status(500).json({ message: "Error creating supervisor", err });
+    res.status(500).json({
+      message: "Error creating supervisor",
+      error: err.message,
+    });
   }
 };
 
 export const getAllSupervisors = async (req, res) => {
   try {
-    const supervisors = await Supervisor.find({ projectManagerId: req.user.id });
+    const pmId = req.user.id || req.user._id;
+
+    const supervisors = await supervisorModel.find({
+      projectManagerId: pmId,
+    })
+      .populate("siteId", "name")
+      .lean();
+
     res.json(supervisors);
   } catch (err) {
-    res.status(500).json({ message: "Error fetching supervisors", err });
+    console.error("getAllSupervisors ERROR:", err);
+    res.status(500).json({
+      message: "Error fetching supervisors",
+      error: err.message,
+    });
   }
 };
 
 export const assignSiteToSupervisor = async (req, res) => {
   try {
     const { siteId } = req.body;
+
+    // 🔐 Validate site belongs to PM
+    const pm = await ProjectManager.findById(req.user.id)
+      .select("assignedSites")
+      .lean();
+
+    if (!pm?.assignedSites?.some(id => id.toString() === siteId)) {
+      return res.status(403).json({ message: "Access denied to this site" });
+    }
+
     const supervisor = await Supervisor.findById(req.params.id);
-    if (!supervisor) return res.status(404).json({ message: "Supervisor not found" });
+    if (!supervisor) {
+      return res.status(404).json({ message: "Supervisor not found" });
+    }
 
     supervisor.siteId = siteId;
     await supervisor.save();
 
     res.json(supervisor);
   } catch (err) {
-    res.status(500).json({ message: "Error assigning site to supervisor", err });
+    res.status(500).json({
+      message: "Error assigning site to supervisor",
+      error: err.message,
+    });
   }
 };
-
 export const toggleSupervisorStatus = async (req, res) => {
   try {
-    const supervisor = await Supervisor.findById(req.params.id);
-    if (!supervisor) return res.status(404).json({ message: "Supervisor not found" });
+    const supervisor = await supervisorModel.findById(req.params.id);
+    if (!supervisor) {
+      return res.status(404).json({ message: "Supervisor not found" });
+    }
 
     supervisor.isActive = !supervisor.isActive;
     await supervisor.save();
 
     res.json(supervisor);
   } catch (err) {
-    res.status(500).json({ message: "Error toggling supervisor status", err });
+    res.status(500).json({
+      message: "Error toggling supervisor status",
+      error: err.message,
+    });
   }
 };
-
 // Live Vehicles Monitoring
 export const getLiveVehicles = async (req, res) => {
   try {
-    const liveVehicles = await Vehicle.find({ projectManagerId: req.user.id, status: "online" });
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const projectManagerId = req.user._id || req.user.id;
+
+    const query = {
+      projectManagerId,
+      status: { $in: ["inside", "pending_exit"] },
+    };
+
+    if (req.query.siteId && req.query.siteId !== "all") {
+      query.siteId = req.query.siteId;
+    }
+
+    const liveVehicles = await Vehicle.find(query)
+      .populate("siteId", "name");
+
     res.json(liveVehicles);
   } catch (err) {
-    res.status(500).json({ message: "Error fetching live vehicles", err });
+    console.error("LIVE VEHICLES ERROR:", err);
+    res.status(500).json({
+      message: "Error fetching live vehicles",
+      error: err.message,
+    });
   }
 };
+
 
 
 
@@ -462,9 +547,9 @@ export const getLiveVehicles = async (req, res) => {
 export const getTripReports = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    
+
     const filter = { projectManagerId: req.user.id };
-    
+
     // Date range filter
     if (startDate && endDate) {
       filter.entryAt = {
@@ -480,7 +565,7 @@ export const getTripReports = async (req, res) => {
       .populate('supervisorId', 'name email')
       .populate('clientId', 'name')
       .sort({ entryAt: -1 });
-    
+
     res.json(reports);
   } catch (err) {
     console.error(err);
@@ -492,9 +577,9 @@ export const getTripReports = async (req, res) => {
 export const exportReportsToExcel = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    
+
     const filter = { projectManagerId: req.user.id };
-    
+
     if (startDate && endDate) {
       filter.entryAt = {
         $gte: new Date(startDate),
@@ -532,9 +617,9 @@ export const exportReportsToExcel = async (req, res) => {
       'Duration': calculateDuration(report.entryAt, report.exitAt),
       'Entry Gate': report.entryGate || '-',
       'Exit Gate': report.exitGate || '-',
-      'Status': report.status === 'INSIDE' || report.status === 'active' ? 'Active' : 
-                report.status === 'EXITED' || report.status === 'completed' ? 'Completed' : 
-                report.status,
+      'Status': report.status === 'INSIDE' || report.status === 'active' ? 'Active' :
+        report.status === 'EXITED' || report.status === 'completed' ? 'Completed' :
+          report.status,
       'Supervisor': report.supervisorId?.name || 'N/A',
       'Notes': report.notes || '-'
     }));
@@ -570,7 +655,7 @@ export const exportReportsToExcel = async (req, res) => {
     // Set headers for download
     res.setHeader('Content-Disposition', `attachment; filename=trip_reports_${Date.now()}.xlsx`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    
+
     res.send(buffer);
   } catch (err) {
     console.error(err);
@@ -582,9 +667,9 @@ export const exportReportsToExcel = async (req, res) => {
 export const getReportStats = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    
+
     const filter = { projectManagerId: req.user.id };
-    
+
     if (startDate && endDate) {
       filter.entryTime = {
         $gte: new Date(startDate),
@@ -612,8 +697,8 @@ export const getReportStats = async (req, res) => {
       ])
     ]);
 
-    const avgDuration = totalDuration.length > 0 
-      ? Math.floor(totalDuration[0].totalDuration / completedTrips / (1000 * 60)) 
+    const avgDuration = totalDuration.length > 0
+      ? Math.floor(totalDuration[0].totalDuration / completedTrips / (1000 * 60))
       : 0;
 
     res.json({
@@ -674,7 +759,7 @@ export const getVendors = async (req, res) => {
     const vendors = await Vendor.find({ projectManagerId: req.user.id })
       .populate('assignedSites', 'name location') // Populate site details
       .sort({ createdAt: -1 });
-    
+
     res.json(vendors);
   } catch (err) {
     console.error(err);
@@ -686,7 +771,7 @@ export const getVendors = async (req, res) => {
 export const updateVendor = async (req, res) => {
   try {
     const { name, email, phone, address, assignedSites } = req.body;
-    
+
     const vendor = await Vendor.findById(req.params.id);
     if (!vendor) {
       return res.status(404).json({ message: "Vendor not found" });
@@ -774,15 +859,19 @@ export const getProfile = async (req, res) => {
     }
 
     // 🔁 Map DB → Frontend format
-    res.json({
-      fullName: pm.name,
-      email: pm.email,
-      phone: pm.mobile,
-      location: pm.location || "",
-      assignedSites: pm.assignedSites.length,
-      role: pm.role,
-      createdAt: pm.createdAt,
+    res.status(200).json({
+      success: true,
+      data: {
+        fullName: pm.name,
+        email: pm.email,
+        phone: pm.mobile,
+        location: pm.location || "",
+        assignedSites: pm.assignedSites.length,
+        role: pm.role,
+        createdAt: pm.createdAt,
+      },
     });
+
   } catch (err) {
     res.status(500).json({
       message: "Error fetching profile",
@@ -814,6 +903,7 @@ export const updateProfile = async (req, res) => {
     await pm.save();
 
     res.json({
+      success: true,
       message: "Profile updated successfully",
       data: {
         fullName: pm.name,
@@ -823,6 +913,7 @@ export const updateProfile = async (req, res) => {
         assignedSites: pm.assignedSites.length,
       },
     });
+
   } catch (err) {
     res.status(500).json({
       message: "Error updating profile",

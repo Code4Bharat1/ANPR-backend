@@ -39,27 +39,35 @@ const ProjectManagerSchema = new mongoose.Schema(
       default: "",
     },
     settings: {
-  preferences: {
-    dateFormat: {
-      type: String,
-      default: "DD/MM/YYYY",
+      preferences: {
+        dateFormat: {
+          type: String,
+          default: "DD/MM/YYYY",
+        },
+        timeZone: {
+          type: String,
+          default: "(GMT+00:00) UTC",
+        },
+        language: {
+          type: String,
+          default: "English (US)",
+        },
+      },
     },
-    timeZone: {
-      type: String,
-      default: "(GMT+00:00) UTC",
-    },
-    language: {
-      type: String,
-      default: "English (US)",
-    },
-  },
-},
 
-status: {
+    status: {
       type: String,
       enum: ["Active", "Inactive"],
       default: "Active",
     },
+
+    supervisors: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Supervisor",
+      },
+    ],
+
 
 
     assignedSites: [

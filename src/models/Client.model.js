@@ -1,24 +1,23 @@
-
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 
 const clientSchema = new mongoose.Schema(
   {
+    /* =====================
+       BASIC IDENTITY
+    ===================== */
     companyName: {
       type: String,
       required: true,
       trim: true,
     },
-    clientname: {
-      type: String,
-      require: false,
-      trim: true,
-    },
-    address: {
+
+    // ✅ unified name (frontend uses this)
+    name: {
       type: String,
       trim: true,
-      require: true,
     },
+
     phone: { type: String, required: true },
 
     email: {
@@ -35,12 +34,43 @@ const clientSchema = new mongoose.Schema(
       select: false,
     },
 
+    /* =====================
+       ROLE & ACCESS
+    ===================== */
     role: {
       type: String,
       enum: ["client", "admin"],
       default: "client",
     },
 
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+
+    /* =====================
+       COMPANY DETAILS (PROFILE PAGE)
+    ===================== */
+    company: {
+      name: String,
+      address: String,
+      supportEmail: String,
+      supportPhone: String,
+    },
+
+    location: {
+      type: String,
+      trim: true,
+    },
+
+    preferences: {
+      type: Object,
+      default: {},
+    },
+
+    /* =====================
+       PACKAGE
+    ===================== */
     clientCode: {
       type: String,
       unique: true,
@@ -55,11 +85,9 @@ const clientSchema = new mongoose.Schema(
     packageStart: Date,
     packageEnd: Date,
 
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
-
+    /* =====================
+       META
+    ===================== */
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "SuperAdmin",
@@ -83,6 +111,5 @@ clientSchema.pre("validate", async function (next) {
   next();
 });
 
-/* ✅ Prevent model overwrite error */
 export default mongoose.models.Client ||
   mongoose.model("Client", clientSchema);

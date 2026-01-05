@@ -50,7 +50,7 @@ router.get(
 router.put(
   "/:id",
   verifyAccessToken,
-  authorizeRoles("admin", "client","superadmin"),
+  authorizeRoles("admin", "client","superadmin",),
   updateProjectManager
 );
 

@@ -746,29 +746,51 @@ export const exportReports = async (req, res, next) => {
 
 
 
-export const createSupervisor = async (req, res, next) => {
+export const createSupervisor = async (req, res) => {
   try {
-    if (!req.user || !req.user.clientId) {
-      return res.status(401).json({ message: "Unauthorized" });
+    const {
+      name,
+      email,
+      mobile,
+      password,
+      siteId,
+      projectManagerId,
+    } = req.body;
+
+    if (!projectManagerId) {
+      return res.status(400).json({ message: "Project Manager is required" });
     }
 
-    const { name, email, mobile, password, siteId } = req.body;
+    // ✅ Fetch PM to get clientId
+    const pm = await ProjectManager.findById(projectManagerId).select("clientId");
+    if (!pm) {
+      return res.status(404).json({ message: "Project Manager not found" });
+    }
 
     const supervisor = await Supervisor.create({
       name,
       email,
       mobile,
-      password: await hashPassword(password),
+      password,
       siteId,
-      clientId: req.user.clientId,
-      createdBy: req.user.id,
+      clientId: pm.clientId, // ✅ AUTO SET
+      projectManagerId,
     });
 
-    res.status(201).json(supervisor);
+    await ProjectManager.findByIdAndUpdate(
+      projectManagerId,
+      { $addToSet: { supervisors: supervisor._id } }
+    );
+
+    res.status(201).json({
+      message: "Supervisor created successfully",
+      supervisor,
+    });
   } catch (err) {
-    next(err);
+    res.status(500).json({ message: err.message });
   }
 };
+
 
 /**
  * GET ALL SUPERVISORS (Client Admin)
