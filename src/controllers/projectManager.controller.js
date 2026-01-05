@@ -768,36 +768,44 @@ export const getVendors = async (req, res) => {
 };
 
 // UPDATE VENDOR
-export const updateVendor = async (req, res) => {
+export const updateVendor = async (req, res, next) => {
   try {
-    const { name, email, phone, address, assignedSites } = req.body;
+    const { id } = req.params;
 
-    const vendor = await Vendor.findById(req.params.id);
-    if (!vendor) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid vendor ID" });
+    }
+
+    const old = await Vendor.findById(id);
+    if (!old) {
       return res.status(404).json({ message: "Vendor not found" });
     }
 
-    // Check if vendor belongs to this project manager
-    if (vendor.projectManagerId.toString() !== req.user.id) {
-      return res.status(403).json({ message: "Unauthorized" });
+    // 🔐 Client-level authorization
+    if (String(old.clientId) !== String(req.user.clientId)) {
+      return res.status(403).json({ message: "Forbidden" });
     }
 
-    // Update fields
-    if (name) vendor.name = name;
-    if (email) vendor.email = email;
-    if (phone) vendor.phone = phone;
-    if (address) vendor.address = address;
-    if (assignedSites) vendor.assignedSites = assignedSites;
+    const updated = await Vendor.findByIdAndUpdate(
+      id,
+      req.body,
+      { new: true, runValidators: true }
+    );
 
-    await vendor.save();
-    await vendor.populate('assignedSites', 'name');
+    await logAudit({
+      req,
+      action: "UPDATE",
+      module: "VENDOR",
+      oldValue: old,
+      newValue: updated,
+    });
 
-    res.json(vendor);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error updating vendor", error: err.message });
+    res.json({ success: true, data: updated });
+  } catch (e) {
+    next(e);
   }
 };
+
 
 // TOGGLE VENDOR STATUS
 export const toggleVendorStatus = async (req, res) => {

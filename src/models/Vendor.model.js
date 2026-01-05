@@ -25,9 +25,14 @@ const vendorSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Site'
   }],
+   clientId: {                       // ✅ REQUIRED
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Client",
+    required: true,
+  },
   projectManagerId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    ref: "ProjectManager",
     required: true
   },
   isActive: {
