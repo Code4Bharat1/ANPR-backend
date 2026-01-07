@@ -2,6 +2,7 @@ import express from "express";
 import { verifyAccessToken } from "../middlewares/auth.middleware.js";
 import { authorizeRoles } from "../middlewares/role.middleware.js";
 import * as SA from "../controllers/superadmin.controller.js";
+import { checkDeviceLimit } from "../middlewares/checkDeviceLimit.middleware.js";
 
 const router = express.Router();
 const guard = [verifyAccessToken, authorizeRoles("superadmin")];
@@ -37,7 +38,7 @@ router.get('/clients/:clientId/sites', ...guard,SA.getSitesByClient); // Get sit
 // router.get("/devices", ...guard, SA.listDevices);
 // router.patch("/devices/:id/toggle", ...guard, SA.toggleDevice);
 // Devices
-router.post("/devices", ...guard, SA.createDevice); // ✅ ADD THIS
+router.post("/devices", ...guard,  checkDeviceLimit, SA.createDevice); // ✅ ADD THIS
 router.get("/devices/stats", ...guard, SA.deviceStats);
 router.get("/devices", ...guard, SA.listDevices);
 router.get("/devices/:id", ...guard, SA.getDeviceById); // optional

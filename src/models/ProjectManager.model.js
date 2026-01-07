@@ -38,6 +38,10 @@ const ProjectManagerSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    address: {
+    type: String,
+    default: "",
+  },
     settings: {
       preferences: {
         dateFormat: {
@@ -65,7 +69,7 @@ const ProjectManagerSchema = new mongoose.Schema(
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Supervisor",
-        required: true,
+       
       },
     ],
 

@@ -79,8 +79,20 @@ const clientSchema = new mongoose.Schema(
 
     packageType: {
       type: String,
-      default: "Standard",
+      enum: ["LITE", "CORE", "PRO", "ENTERPRISE"],
+      required: true,
     },
+
+    userLimits: {
+      pm: { type: Number, default: 0 },
+      supervisor: { type: Number, default: 0 },
+    },
+    deviceLimits: {
+      ANPR: { type: Number, default: 0 },
+      BARRIER: { type: Number, default: 0 },
+      BIOMETRIC: { type: Number, default: 0 },
+    },
+
 
     packageStart: Date,
     packageEnd: Date,

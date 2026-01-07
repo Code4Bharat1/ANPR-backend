@@ -8,6 +8,7 @@ import Site from "../models/Site.model.js";
 import Vendor from "../models/Vendor.model.js";
 import DeviceModel from '../models/Device.model.js';
 import supervisorModel from '../models/supervisor.model.js';
+import Vehicle from '../models/Vehicle.model.js';
 import mongoose from 'mongoose';
 
 
@@ -539,7 +540,6 @@ export const getLiveVehicles = async (req, res) => {
     });
   }
 };
-
 
 
 

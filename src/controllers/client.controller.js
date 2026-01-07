@@ -11,6 +11,7 @@ import Settings from '../models/admin.settings.model.js';
 import { hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 import ExcelJS from 'exceljs';
+import mongoose from "mongoose";
 /* ------------------ CREATE CLIENT ------------------ */
 export const createClient = async (req, res, next) => {
   try {
@@ -136,11 +137,12 @@ export const getClientDashboard = async (req, res, next) => {
       supervisors,
       todayEntries,
       todayExits,
-      clientData
+      clientData,
+      devices
     ] = await Promise.all([
       Site.countDocuments({ clientId }),
-      ProjectManager.countDocuments({ clientId }),
-      Supervisor.countDocuments({ clientId }),
+      ProjectManager.countDocuments({ clientId, isActive: true }),
+      Supervisor.countDocuments({ clientId, isActive: true }),
 
       Trip.countDocuments({
         clientId,
@@ -152,22 +154,23 @@ export const getClientDashboard = async (req, res, next) => {
         exitAt: { $gte: today, $lt: tomorrow }
       }),
 
-      Client.findById(clientId)
+      Client.findById(clientId).lean(),
+
+      Device.find({ clientId }).select("devicetype isEnabled").lean()
     ]);
 
-    // ✅ DEVICE LOGIC — FIXED
-    const totalDevices = await Device.countDocuments({ clientId });
+    // 🔌 Device usage breakdown
+    const deviceUsage = {
+      ANPR: devices.filter(d => d.devicetype === "ANPR").length,
+      BARRIER: devices.filter(d => d.devicetype === "BARRIER").length,
+      BIOMETRIC: devices.filter(d => d.devicetype === "BIOMETRIC").length,
+    };
 
-    const activeDevices = await Device.countDocuments({
-      clientId,
-      isEnabled: true
-    });
+    const totalDevices = devices.length;
+    const activeDevices = devices.filter(d => d.isEnabled).length;
+    const inactiveDevices = totalDevices - activeDevices;
 
-    const inactiveDevices = await Device.countDocuments({
-      clientId,
-      isEnabled: false
-    });
-
+    // 🕒 Recent activity
     const recentActivity = await Trip.find({ clientId })
       .sort({ createdAt: -1 })
       .limit(10)
@@ -175,6 +178,32 @@ export const getClientDashboard = async (req, res, next) => {
       .select("plateText entryAt exitAt status siteId");
 
     res.json({
+      /* =========================
+         PLAN INFO (NEW)
+      ========================= */
+      plan: {
+        packageType: clientData.packageType,
+        packageStart: clientData.packageStart,
+        packageEnd: clientData.packageEnd,
+        limits: {
+          pm: clientData.userLimits?.pm ?? 0,
+          supervisor: clientData.userLimits?.supervisor ?? 0,
+          devices: clientData.deviceLimits ?? {}
+        }
+      },
+
+      /* =========================
+         USAGE INFO (NEW)
+      ========================= */
+      usage: {
+        pm: projectManagers,
+        supervisor: supervisors,
+        devices: deviceUsage
+      },
+
+      /* =========================
+         EXISTING DASHBOARD DATA
+      ========================= */
       totalSites,
       totalProjectManagers: projectManagers,
       totalSupervisors: supervisors,
@@ -189,11 +218,9 @@ export const getClientDashboard = async (req, res, next) => {
       todayTotal: todayEntries + todayExits,
 
       recentActivity: recentActivity.map(trip => ({
-        vehicleNumber: trip.plateText,
-        site: trip.siteId?.name,
-        entryTime: trip.entryAt,
-        exitTime: trip.exitAt,
-        status: trip.status
+        title: `Vehicle ${trip.plateText}`,
+        description: `${trip.status} at ${trip.siteId?.name}`,
+        time: trip.entryAt || trip.exitAt
       })),
 
       lastUpdated: new Date().toISOString()
@@ -213,6 +240,7 @@ export const createProjectManager = async (req, res, next) => {
       email: email.toLowerCase().trim(), // ✅ FIX
       mobile,
       password,
+    
       assignedSites: assignedSites || [],
       clientId: req.user.clientId,
       createdBy: req.user.id,
@@ -241,6 +269,82 @@ export const getProjectManagers = async (req, res, next) => {
     res.json({
       count: projectManagers.length,
       data: projectManagers
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+/**
+ * UPDATE PROJECT MANAGER (Client / Admin)
+ * PUT /api/clients/project-managers/:id
+ */
+export const updateProjectManager = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // 🛑 Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid Project Manager ID" });
+    }
+
+    const pm = await ProjectManager.findById(id);
+    if (!pm) {
+      return res.status(404).json({ message: "Project Manager not found" });
+    }
+
+    /**
+     * 🔐 AUTHORIZATION RULE
+     * Client → can update only their own PMs
+     * Admin  → can update any PM
+     */
+    if (
+      req.user.role === "client" &&
+      String(pm.clientId) !== String(req.user.clientId)
+    ) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    // ✅ Allowed fields only
+    const {
+      name,
+      email,
+      mobile,
+      location,
+      status,
+      address,
+      assignedSites,
+      supervisors,
+      isActive,
+    } = req.body;
+
+    if (name !== undefined) pm.name = name;
+    if (email !== undefined) pm.email = email.toLowerCase().trim();
+    if (mobile !== undefined) pm.mobile = mobile;
+    if (location !== undefined) pm.location = location;
+    if (status !== undefined) pm.status = status;
+    if (req.body.address !== undefined && req.body.address.trim() !== "") {
+      pm.address = req.body.address;
+    }
+    if (assignedSites !== undefined) pm.assignedSites = assignedSites;
+    if (supervisors !== undefined) pm.supervisors = supervisors;
+    if (isActive !== undefined) pm.isActive = isActive;
+
+    await pm.save();
+
+    res.json({
+      success: true,
+      message: "Project Manager updated successfully",
+      data: {
+        id: pm._id,
+        name: pm.name,
+        email: pm.email,
+        mobile: pm.mobile,
+        location: pm.location,
+        status: pm.status,
+        assignedSites: pm.assignedSites.length,
+        supervisors: pm.supervisors.length,
+        isActive: pm.isActive,
+      },
     });
   } catch (err) {
     next(err);
@@ -332,7 +436,7 @@ export const listUsers = async (req, res, next) => {
 export const togglePMStatus = async (req, res, next) => {
   try {
     const { status } = req.body;
-    const { id } = req.params ;
+    const { id } = req.params;
 
 
 
@@ -365,7 +469,7 @@ export const togglePMStatus = async (req, res, next) => {
 export const toggleSupervisorStatus = async (req, res, next) => {
   try {
     const { status } = req.body;
-    const { id } = req.params ;
+    const { id } = req.params;
 
 
 
@@ -433,11 +537,20 @@ export const getSites = async (req, res, next) => {
     }
 
     const sites = await Site.find({ clientId: req.user.clientId })
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // 🔑 Add counts derived from arrays
+    const enrichedSites = sites.map(site => ({
+      ...site,
+      assignedPMs: site.projectManagers?.length || 0,
+      assignedSupervisors: site.supervisors?.length || 0,
+      totalDevices: 0, // future ready
+    }));
 
     res.json({
-      count: sites.length,
-      data: sites,
+      count: enrichedSites.length,
+      data: enrichedSites,
     });
   } catch (err) {
     next(err);
@@ -788,6 +901,82 @@ export const createSupervisor = async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+};
+/**
+ * UPDATE SUPERVISOR (Client / Admin)
+ * PUT /api/clients/supervisor/:id
+ */
+export const updateSupervisor = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // 🛑 ObjectId validation
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid Supervisor ID" });
+    }
+
+    const supervisor = await Supervisor.findById(id);
+    if (!supervisor) {
+      return res.status(404).json({ message: "Supervisor not found" });
+    }
+
+    /**
+     * 🔐 AUTHORIZATION
+     * Client → only same client supervisors
+     * Admin  → all supervisors
+     */
+    if (
+      req.user.role === "client" &&
+      String(supervisor.clientId) !== String(req.user.clientId)
+    ) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    // ✅ Allowed fields only
+    const {
+      name,
+      email,
+      mobile,
+      address,
+      status,
+      siteId,
+      projectManagerId,
+      isActive,
+    } = req.body;
+
+    if (name !== undefined) supervisor.name = name;
+    if (email !== undefined) supervisor.email = email.toLowerCase().trim();
+    if (mobile !== undefined) supervisor.mobile = mobile;
+
+    // 🔐 Address safe update (same PM logic)
+    if (address !== undefined && address.trim() !== "") {
+      supervisor.address = address;
+    }
+
+    if (status !== undefined) supervisor.status = status;
+    if (siteId !== undefined) supervisor.siteId = siteId;
+    if (projectManagerId !== undefined) supervisor.projectManagerId = projectManagerId;
+    if (isActive !== undefined) supervisor.isActive = isActive;
+
+    await supervisor.save();
+
+    res.json({
+      success: true,
+      message: "Supervisor updated successfully",
+      data: {
+        id: supervisor._id,
+        name: supervisor.name,
+        email: supervisor.email,
+        mobile: supervisor.mobile,
+        status: supervisor.status,
+        siteId: supervisor.siteId,
+        projectManagerId: supervisor.projectManagerId,
+        isActive: supervisor.isActive,
+      },
+    });
+  } catch (err) {
+    next(err);
   }
 };
 

@@ -6,7 +6,7 @@ import AuditLog from "../models/AuditLog.model.js";
 import SuperAdmin from "../models/superadmin.model.js";
 import AppSettings from "../models/AppSettings.model.js";
 import Notification from "../models/Notification.model.js";
-
+import { PLANS } from "../config/plans.js"; 
 import { comparePassword, hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 
@@ -266,13 +266,21 @@ export const getAuditLogs = async (req, res, next) => {
 ====================================================== */
 export const createClient = async (req, res, next) => {
   try {
+    const { packageType } = req.body;
+    const plan = PLANS[packageType];
+
+    if (!plan) {
+      return res.status(400).json({ message: "Invalid package" });
+    }
+
     const client = await Client.create({
       ...req.body,
+      userLimits: plan.limits,
+      deviceLimits: plan.limits.devices,
       createdBy: req.user.id,
       isActive: true,
     });
 
-    await logAudit({ req, action: "CREATE", module: "CLIENT", newValue: client });
     res.status(201).json(client);
   } catch (e) {
     next(e);

@@ -27,9 +27,12 @@ import {
   updateSite,
   getProjectManagers,
   togglePMStatus,
-  toggleSupervisorStatus
+  toggleSupervisorStatus,
+  updateProjectManager,
+  updateSupervisor
 
 } from "../controllers/client.controller.js";
+import { checkUserLimit } from "../middlewares/checkUserLimit.middleware.js";
 
 const router = express.Router();
 
@@ -92,7 +95,8 @@ router.get(
 router.post(
   "/project-managers",
   verifyAccessToken,                    // 🔥 MUST
-  authorizeRoles("client", "admin"),    // 🔥 MUST
+  authorizeRoles("client", "admin"),  
+  checkUserLimit("pm"),  // 🔥 MUST
   createProjectManager
 );
 
@@ -103,12 +107,24 @@ router.get(
   authorizeRoles("client", "admin"),
   getProjectManagers
 );
+router.put(
+  "/project-managers/:id",
+  verifyAccessToken,
+  authorizeRoles("client", "admin"),
+updateProjectManager
+);
 router.post("/supervisors", verifyAccessToken,                    // 🔥 MUST
-  authorizeRoles("client", "admin"), createSupervisor);
+  authorizeRoles("client", "admin"), checkUserLimit("supervisor"), createSupervisor);
 
 router.get("/supervisors", verifyAccessToken,                    // 🔥 MUST
   authorizeRoles("client", "admin"), getSupervisors);
 
+router.put(
+  "/supervisor/:id",
+  verifyAccessToken,
+  authorizeRoles("client", "admin"),
+  updateSupervisor
+);
 
   
 // router.get("/users", getUsers);
@@ -122,8 +138,10 @@ router.patch("/pm/:id/status",verifyAccessToken,                    // 🔥 MUST
   authorizeRoles("client", "admin"), togglePMStatus);
 
 
-  router.patch("/supervisor/:id/status",verifyAccessToken,                    // 🔥 MUST
+router.patch("/supervisor/:id/status",verifyAccessToken,                    // 🔥 MUST
   authorizeRoles("client", "admin"), toggleSupervisorStatus);
+
+
 
 router.post(
   "/sites",
