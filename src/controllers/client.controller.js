@@ -11,6 +11,7 @@ import Settings from '../models/admin.settings.model.js';
 import { hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 import ExcelJS from 'exceljs';
+import { PLANS } from "../config/plans.js";
 import mongoose from "mongoose";
 /* ------------------ CREATE CLIENT ------------------ */
 export const createClient = async (req, res, next) => {
@@ -126,6 +127,7 @@ export const toggleClient = async (req, res, next) => {
 /* ======================================================
     GET CLIENT DASHBOARD  
 ====================================================== */
+
 export const getClientDashboard = async (req, res, next) => {
   try {
     const clientId = req.user.clientId;
@@ -163,6 +165,9 @@ export const getClientDashboard = async (req, res, next) => {
       Device.find({ clientId }).select("devicetype isEnabled").lean()
     ]);
 
+    // ✅ Get limits from PLANS config based on packageType
+    const packageLimits = PLANS[clientData.packageType] || PLANS.LITE;
+
     // 🔌 Device usage breakdown
     const deviceUsage = {
       ANPR: devices.filter(d => d.devicetype === "ANPR").length,
@@ -183,21 +188,21 @@ export const getClientDashboard = async (req, res, next) => {
 
     res.json({
       /* =========================
-         PLAN INFO (NEW)
+         PLAN INFO - Using PLANS config
       ========================= */
       plan: {
         packageType: clientData.packageType,
         packageStart: clientData.packageStart,
         packageEnd: clientData.packageEnd,
         limits: {
-          pm: clientData.userLimits?.pm ?? 0,
-          supervisor: clientData.userLimits?.supervisor ?? 0,
-          devices: clientData.deviceLimits ?? {}
+          pm: packageLimits.limits.pm,
+          supervisor: packageLimits.limits.supervisor,
+          devices: packageLimits.limits.devices
         }
       },
 
       /* =========================
-         USAGE INFO (NEW)
+         USAGE INFO
       ========================= */
       usage: {
         pm: projectManagers,
@@ -233,7 +238,6 @@ export const getClientDashboard = async (req, res, next) => {
     next(err);
   }
 };
-
 
 export const createProjectManager = async (req, res, next) => {
   try {
