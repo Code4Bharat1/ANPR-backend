@@ -122,6 +122,10 @@ export const toggleClient = async (req, res, next) => {
   }
 };
 
+
+/* ======================================================
+    GET CLIENT DASHBOARD  
+====================================================== */
 export const getClientDashboard = async (req, res, next) => {
   try {
     const clientId = req.user.clientId;
