@@ -43,8 +43,8 @@ app.use(
     origin: [
       "http://localhost:3000",
       "https://anpr.nexcorealliance.com",
-      "www.https://anpr.nexcorealliance.com",
-      "www.https://webhooks.nexcorealliance.com"], 
+      "https://www.anpr.nexcorealliance.com",
+      "https://www.webhooks.nexcorealliance.com"], 
     credentials: true,
   })
 );
