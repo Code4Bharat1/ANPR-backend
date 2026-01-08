@@ -337,11 +337,27 @@ export const updateClient = async (req, res, next) => {
 export const deactivateClient = async (req, res, next) => {
   try {
     const client = await Client.findById(req.params.id);
+
+    if (!client) {
+      return res.status(404).json({ message: "Client not found" });
+    }
+
     client.isActive = false;
     await client.save();
 
-    await logAudit({ req, action: "DEACTIVATE", module: "CLIENT", newValue: client });
-    res.json(client);
+    // ✅ logout from all devices
+    await RefreshToken.deleteMany({ userId: client._id });
+
+    await logAudit({
+      req,
+      action: "DEACTIVATE",
+      module: "CLIENT",
+      newValue: client,
+    });
+
+    res.json({
+      message: "Client deactivated successfully",
+    });
   } catch (e) {
     next(e);
   }

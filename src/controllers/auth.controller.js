@@ -48,6 +48,11 @@ export const login = async (req, res, next) => {
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
+    if (user.isActive === false) {
+      return res.status(403).json({
+        message: "Your account is deactivated. Please contact SuperAdmin.",
+      });
+    }
 
     const isMatch = await comparePassword(password, user.password);
     if (!isMatch) {
@@ -114,7 +119,11 @@ export const refresh = async (req, res, next) => {
     }
 
     const decoded = verifyRefresh(refreshToken);
-
+    if (!user || user.isActive === false) {
+      return res.status(403).json({
+        message: "Account deactivated",
+      });
+    }
     const newAccessToken = generateAccessToken({
       id: decoded.id,
       role: decoded.role,
