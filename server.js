@@ -40,7 +40,11 @@ Global Middlewares
 ======================= */
 app.use(
   cors({
-    origin: ["*"], 
+    origin: [
+      "http://localhost:3000",
+      "https://anpr.nexcorealliance.com",
+      "www.https://anpr.nexcorealliance.com",
+      "www.https://webhooks.nexcorealliance.com"], 
     credentials: true,
   })
 );
