@@ -31,6 +31,23 @@ const siteSchema = new mongoose.Schema(
       unique: true,
       sparse: true,
     },
+    /* ======================
+       GATE INFO
+    ====================== */
+    gates: [
+  {
+    gateName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    gateCode: String,
+    isMainGate: { type: Boolean, default: false },
+    isActive: { type: Boolean, default: true },
+  },
+],
+
+
 
     /* ======================
        CONTACT INFO
@@ -56,7 +73,7 @@ const siteSchema = new mongoose.Schema(
     ====================== */
     status: {
       type: String,
-      enum: ["Active", "Inactive", "Complelted"],
+      enum: ["Active", "Inactive", "Completed"],
       default: "Active",
     },
 
@@ -75,19 +92,18 @@ const siteSchema = new mongoose.Schema(
       index: true,
     },
 
-    supervisors: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Supervisor",
-      },
-    ],
+    supervisors: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Supervisor",
+      index: true,
+    }],
 
-    projectManagers: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "ProjectManager",
-      },
-    ],
+    projectManagers: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ProjectManager",
+      index: true,
+    }],
+
 
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

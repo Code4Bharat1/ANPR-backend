@@ -512,6 +512,7 @@ export const toggleSupervisorStatus = async (req, res, next) => {
 // CONTROLLERS (controllers/clientAdmin.js)
 // ============================================
 
+
 /**
  * CREATE SITE
  */
@@ -521,8 +522,26 @@ export const createSite = async (req, res, next) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
+    const { gates = [] } = req.body;
+
+    // 🧹 Remove empty gates (VERY IMPORTANT)
+    const cleanedGates = Array.isArray(gates)
+      ? gates.filter(
+          gate => gate?.gateName && gate.gateName.trim() !== ""
+        )
+      : [];
+
+    // 🛡️ Ensure only one main gate
+    const mainGateCount = cleanedGates.filter(g => g.isMainGate).length;
+    if (mainGateCount > 1) {
+      return res.status(400).json({
+        message: "Only one gate can be marked as main gate"
+      });
+    }
+
     const site = await Site.create({
       ...req.body,
+      gates: cleanedGates,
       clientId: req.user.clientId,
       createdBy: req.user.id,
     });
@@ -548,11 +567,15 @@ export const getSites = async (req, res, next) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    // 🔑 Add counts derived from arrays
     const enrichedSites = sites.map(site => ({
       ...site,
       assignedPMs: site.projectManagers?.length || 0,
       assignedSupervisors: site.supervisors?.length || 0,
+
+      // 🚪 Gate metrics
+      totalGates: site.gates?.length || 0,
+      activeGates: site.gates?.filter(g => g.isActive).length || 0,
+
       totalDevices: 0, // future ready
     }));
 
@@ -565,33 +588,41 @@ export const getSites = async (req, res, next) => {
   }
 };
 
+
 /**
  * UPDATE SITE
  */
 export const updateSite = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const { gates } = req.body;
 
-    // 🔐 Safety check
     if (!req.user || !req.user.clientId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    // 1️⃣ Check if site exists
     const site = await Site.findById(id);
 
     if (!site) {
       return res.status(404).json({ message: "Site not found" });
     }
 
-    // 2️⃣ Verify ownership (site belongs to this client)
     if (site.clientId.toString() !== req.user.clientId.toString()) {
       return res.status(403).json({
-        message: "Forbidden: You don't have permission to update this site"
+        message: "Forbidden: You don't have permission to update this site",
       });
     }
 
-    // 3️⃣ Update the site
+    // 🛡️ Gate validation (optional but recommended)
+    if (gates) {
+      const mainGateCount = gates.filter(g => g.isMainGate).length;
+      if (mainGateCount > 1) {
+        return res.status(400).json({
+          message: "Only one gate can be marked as main gate"
+        });
+      }
+    }
+
     const updatedSite = await Site.findByIdAndUpdate(
       id,
       {
@@ -600,8 +631,8 @@ export const updateSite = async (req, res, next) => {
         updatedAt: new Date(),
       },
       {
-        new: true, // Return updated document
-        runValidators: true // Run schema validations
+        new: true,
+        runValidators: true,
       }
     );
 
@@ -613,6 +644,7 @@ export const updateSite = async (req, res, next) => {
     next(err);
   }
 };
+
 
 /**
  * DELETE SITE

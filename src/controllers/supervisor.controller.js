@@ -144,83 +144,75 @@ export const toggleSupervisor = async (req, res, next) => {
 
 export const supervisorDashboard = async (req, res, next) => {
   try {
-    // ✅ supervisor is always assigned to ONE site
     const siteId = req.user.siteId;
 
     if (!siteId) {
-      return res.status(400).json({ message: "Supervisor not assigned to any site" });
+      return res.status(400).json({
+        message: "Supervisor not assigned to any site"
+      });
     }
 
-    /* ==========================
-       DATE RANGE (TODAY)
-    ========================== */
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    /* ==========================
-       TRIP STATS
-    ========================== */
+    const [
+      vehiclesInside,
+      todayEntry,
+      todayExit,
+      pendingExit,
+      deniedEntries,
+      recentTrips,
+      site
+    ] = await Promise.all([
+      Trip.countDocuments({ siteId, status: "INSIDE" }),
 
-    const vehiclesInside = await Trip.countDocuments({
-      siteId,
-      status: "INSIDE",
-    });
+      Trip.countDocuments({
+        siteId,
+        entryAt: { $gte: today }
+      }),
 
-    const todayEntry = await Trip.countDocuments({
-      siteId,
-      entryAt: { $gte: today },
-    });
+      Trip.countDocuments({
+        siteId,
+        status: "EXITED",
+        exitAt: { $gte: today }
+      }),
 
-    const todayExit = await Trip.countDocuments({
-      siteId,
-      exitAt: { $gte: today },
-    });
+      Trip.countDocuments({
+        siteId,
+        status: "INSIDE",
+        exitExpectedAt: { $exists: true }
+      }),
 
-    const pendingExit = await Trip.countDocuments({
-      siteId,
-      status: "INSIDE",
-      exitExpectedAt: { $exists: true },
-    });
+      Trip.countDocuments({
+        siteId,
+        status: "DENIED",
+        entryAt: { $gte: today }
+      }),
 
-    const deniedEntries = await Trip.countDocuments({
-      siteId,
-      status: "DENIED",
-      entryAt: { $gte: today },
-    });
+      Trip.find({ siteId })
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean(),
 
-    /* ==========================
-       RECENT ACTIVITY (LAST 10)
-    ========================== */
-    const recentTrips = await Trip.find({ siteId })
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .lean();
+      Site.findById(siteId).lean()
+    ]);
+
+    if (!site) {
+      return res.status(404).json({
+        message: "Assigned site not found"
+      });
+    }
 
     const recentActivity = recentTrips.map(t => ({
       id: t._id,
       vehicleNumber: t.vehicleNumber,
-      type: t.entryType === "ENTRY" ? "entry" : "exit",
+      type: t.entryType === "EXIT" ? "exit" : "entry",
       status: t.status === "DENIED" ? "denied" : "allowed",
-      gate: t.gateName || "Main Gate",
+      gate: t.gateName ?? "Unknown Gate",
       visitor: t.visitorType || "Unknown",
       time: new Date(t.createdAt).toLocaleTimeString(),
     }));
 
-    /* ==========================
-       SITE INFO
-    ========================== */
-    const site = await Site.findById(siteId).lean();
-
-    const siteInfo = {
-      name: site?.name || "Assigned Site",
-      gates: site?.gates?.length || 1,
-      shift: "Day Shift",
-      status: "Active",
-    };
-
-    /* ==========================
-       FINAL RESPONSE (🔥 MATCHES UI)
-    ========================== */
     res.json({
       stats: {
         todayEntry,
@@ -230,13 +222,19 @@ export const supervisorDashboard = async (req, res, next) => {
         deniedEntries,
       },
       recentActivity,
-      siteInfo,
+      siteInfo: {
+        name: site.name,
+        gates: site.gates?.length || 0,
+        shift: "Day Shift",
+        status: site.status || "Active",
+      },
     });
 
-  } catch (e) {
-    next(e);
+  } catch (err) {
+    next(err);
   }
 };
+
 
 
 
@@ -657,31 +655,45 @@ export const getActiveVehicles = async (req, res, next) => {
   try {
     const siteId = req.user.siteId;
 
+    if (!siteId) {
+      return res.status(400).json({
+        message: "Supervisor not assigned to any site"
+      });
+    }
+
+    const OVERSTAY_MINUTES = 240;
+
     const trips = await Trip.find({
       siteId,
       status: "INSIDE",
     })
       .populate("vendorId", "name")
       .populate("vehicleId", "vehicleNumber vehicleType")
-      .sort({ entryAt: -1 });
+      .sort({ entryAt: -1 })
+      .lean();
 
-    const formatted = trips.map((t) => {
+    const now = Date.now();
+
+    const formatted = trips.map(t => {
+      const entryTime = new Date(t.entryAt);
       const durationMinutes = Math.floor(
-        (Date.now() - new Date(t.entryAt)) / (1000 * 60)
+        (now - entryTime.getTime()) / (1000 * 60)
       );
 
       return {
         _id: t._id,
-        vehicleNumber: t.plateText,
+        vehicleNumber:
+          t.vehicleId?.vehicleNumber || t.plateText || "Unknown",
         vehicleType: t.vehicleId?.vehicleType || "Unknown",
         vendor: t.vendorId?.name || "Unknown",
         driver: t.driverName || "N/A",
-        entryTime: t.entryAt.toLocaleTimeString(),
+        entryTime: entryTime.toLocaleTimeString(),
         duration: `${Math.floor(durationMinutes / 60)}h ${
           durationMinutes % 60
         }m`,
         durationMinutes,
-        status: durationMinutes > 240 ? "overstay" : "loading",
+        status:
+          durationMinutes > OVERSTAY_MINUTES ? "overstay" : "loading",
         materialType: t.purpose || "N/A",
       };
     });
@@ -691,6 +703,7 @@ export const getActiveVehicles = async (req, res, next) => {
     next(err);
   }
 };
+
 export const allowVehicleExit = async (req, res, next) => {
   try {
     const supervisorId = req.user._id;
@@ -755,6 +768,115 @@ export const allowVehicleExit = async (req, res, next) => {
       exitAt: trip.exitAt,
     });
   } catch (err) {
+    next(err);
+  }
+};
+/**
+ * @desc   Allow vehicle entry
+ * @route  POST /api/supervisor/vehicles/entry
+ * @access Supervisor
+ */
+export const allowVehicleEntry = async (req, res, next) => {
+  try {
+    const supervisorId = req.user._id;
+    const { siteId, clientId } = req.user;
+
+    const {
+      vehicleNumber,
+      vehicleType,
+      driverName,
+      vendorId,
+      entryTime,
+      materialType,
+      loadStatus,
+      notes,
+      media,
+    } = req.body;
+
+    if (!vehicleNumber || !vehicleType || !vendorId) {
+      return res.status(400).json({
+        message: "vehicleNumber, vehicleType and vendorId are required",
+      });
+    }
+
+    /* ===============================
+       FIND OR CREATE VEHICLE
+    =============================== */
+    let vehicle = await Vehicle.findOne({
+      vehicleNumber,
+      siteId,
+    });
+
+    if (vehicle?.isInside) {
+      return res.status(409).json({
+        message: "Vehicle is already inside the site",
+      });
+    }
+
+    if (!vehicle) {
+      vehicle = await Vehicle.create({
+        vehicleNumber,
+        vehicleType,
+        driverName,
+        vendorId,
+        siteId,
+        clientId,
+        createdBy: supervisorId,
+      });
+    } else {
+      vehicle.driverName = driverName || vehicle.driverName;
+      vehicle.vehicleType = vehicleType;
+      vehicle.vendorId = vendorId;
+    }
+
+    vehicle.isInside = true;
+    vehicle.lastEntryAt = entryTime ? new Date(entryTime) : new Date();
+    vehicle.lastAnprImage = media?.anprImage || vehicle.lastAnprImage;
+    vehicle.lastDetectedAt = new Date();
+
+    await vehicle.save();
+
+    /* ===============================
+       CREATE TRIP (SOURCE OF TRUTH)
+    =============================== */
+    const trip = await Trip.create({
+      tripId: `TRIP-${Date.now()}`,
+      siteId,
+      clientId,
+      vehicleId: vehicle._id,
+      vendorId,
+      plateText: vehicleNumber,
+      driverName,
+
+      entryAt: entryTime ? new Date(entryTime) : new Date(),
+      entryGate: "Main Gate",
+      status: "INSIDE",
+
+      purpose: materialType,
+      loadStatus,
+
+      entryMedia: {
+        anprImage: media?.anprImage || "",
+        frontView: media?.frontView || "",
+        backView: media?.backView || "",
+        driverView: media?.driverView || "",
+        loadView: media?.loadView || "",
+        video: media?.videoClip || "",
+        challanImage: media?.challanImage || "",
+      },
+
+      notes,
+      entryBy: supervisorId,
+    });
+
+    res.status(201).json({
+      message: "Vehicle entry allowed successfully",
+      tripId: trip.tripId,
+      vehicleId: vehicle._id,
+      entryAt: trip.entryAt,
+    });
+  } catch (err) {
+    console.error("Allow Vehicle Entry Error:", err);
     next(err);
   }
 };

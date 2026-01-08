@@ -12,7 +12,8 @@ import {
     getTripHistory,
     exportTripHistory,
     supervisorAnalytics,
-    allowVehicleExit
+    allowVehicleExit,
+    allowVehicleEntry
 } from "../controllers/supervisor.controller.js";
 
 const router = express.Router();
@@ -82,6 +83,12 @@ router.post(
   verifyAccessToken,
   authorizeRoles("supervisor"),
   allowVehicleExit
+);
+router.post(
+  "/vehicles/entry",
+  verifyAccessToken,
+  authorizeRoles("supervisor"),
+  allowVehicleEntry
 );
 
 export default router;
