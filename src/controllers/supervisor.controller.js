@@ -239,100 +239,7 @@ export const supervisorDashboard = async (req, res, next) => {
 
 
 
-export const getTripHistory = async (req, res, next) => {
-  try {
-    const siteId = req.user.siteId;
-    const { period } = req.query;
 
-    if (!siteId) {
-      return res.status(400).json({
-        message: "Supervisor not assigned to site",
-      });
-    }
-
-    /* ---------------- DATE FILTER ---------------- */
-    const now = new Date();
-    let startDate = null;
-
-    switch (period) {
-      case "today":
-        startDate = new Date();
-        startDate.setHours(0, 0, 0, 0);
-        break;
-
-      case "last7days":
-        startDate = new Date(now.setDate(now.getDate() - 7));
-        break;
-
-      case "last30days":
-        startDate = new Date(now.setDate(now.getDate() - 30));
-        break;
-
-      case "thismonth":
-        startDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-        break;
-
-      default:
-        startDate = null;
-    }
-
-    const query = { siteId };
-    if (startDate) {
-      query.entryAt = { $gte: startDate };
-    }
-
-    /* ---------------- FETCH TRIPS ---------------- */
-    const trips = await Trip.find(query)
-      .populate("vendorId", "name")
-      .sort({ entryAt: -1 })
-      .lean();
-
-    /* ---------------- FORMAT FOR UI ---------------- */
-    const formattedTrips = trips.map((trip) => {
-      let status = "active";
-
-      if (trip.status === "EXITED" || trip.status === "completed") {
-        status = "completed";
-      }
-      if (trip.status === "cancelled") {
-        status = "denied";
-      }
-
-      let duration = "--";
-      if (trip.exitAt) {
-        const diff = new Date(trip.exitAt) - new Date(trip.entryAt);
-        const h = Math.floor(diff / (1000 * 60 * 60));
-        const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-        duration = `${h}h ${m}m`;
-      }
-
-      return {
-        _id: trip._id,
-
-        // UI expects this
-        tripId: `#${trip.tripId}`,
-        vehicleNumber: trip.plateText,
-        vendor: trip.vendorId?.name || "Unknown",
-        driver: "N/A",
-
-        entryTime: new Date(trip.entryAt).toLocaleString(),
-        exitTime: trip.exitAt
-          ? new Date(trip.exitAt).toLocaleString()
-          : "--",
-
-        duration,
-        status,
-        materialType: trip.purpose || "N/A",
-      };
-    });
-
-    res.json({
-      data: formattedTrips,
-    });
-  } catch (err) {
-    next(err);
-  }
-};
 
 export const exportTripHistory = async (req, res, next) => {
   try {
@@ -651,58 +558,6 @@ export const supervisorAnalytics = async (req, res, next) => {
 
 
 
-export const getActiveVehicles = async (req, res, next) => {
-  try {
-    const siteId = req.user.siteId;
-
-    if (!siteId) {
-      return res.status(400).json({
-        message: "Supervisor not assigned to any site"
-      });
-    }
-
-    const OVERSTAY_MINUTES = 240;
-
-    const trips = await Trip.find({
-      siteId,
-      status: "INSIDE",
-    })
-      .populate("vendorId", "name")
-      .populate("vehicleId", "vehicleNumber vehicleType")
-      .sort({ entryAt: -1 })
-      .lean();
-
-    const now = Date.now();
-
-    const formatted = trips.map(t => {
-      const entryTime = new Date(t.entryAt);
-      const durationMinutes = Math.floor(
-        (now - entryTime.getTime()) / (1000 * 60)
-      );
-
-      return {
-        _id: t._id,
-        vehicleNumber:
-          t.vehicleId?.vehicleNumber || t.plateText || "Unknown",
-        vehicleType: t.vehicleId?.vehicleType || "Unknown",
-        vendor: t.vendorId?.name || "Unknown",
-        driver: t.driverName || "N/A",
-        entryTime: entryTime.toLocaleTimeString(),
-        duration: `${Math.floor(durationMinutes / 60)}h ${
-          durationMinutes % 60
-        }m`,
-        durationMinutes,
-        status:
-          durationMinutes > OVERSTAY_MINUTES ? "overstay" : "loading",
-        materialType: t.purpose || "N/A",
-      };
-    });
-
-    res.json({ data: formatted });
-  } catch (err) {
-    next(err);
-  }
-};
 
 export const allowVehicleExit = async (req, res, next) => {
   try {
@@ -877,6 +732,513 @@ export const allowVehicleEntry = async (req, res, next) => {
     });
   } catch (err) {
     console.error("Allow Vehicle Entry Error:", err);
+    next(err);
+  }
+};
+
+
+// Socket.IO handler for ANPR events
+export const handleAnprEvents = (io) => {
+  io.on("connection", (socket) => {
+    console.log("✅ Client connected:", socket.id);
+
+    // Listen for ANPR events from the hardware/ANPR system
+    socket.on("anpr:new-event", async (data) => {
+      try {
+        console.log("🚗 Received ANPR Event:", data);
+
+        // Extract data from ANPR event
+        const {
+          numberPlate,
+          vehicleType,
+          cameraName,
+          direction,
+          speed,
+          isEntry,
+          timestamp,
+          siteId,
+          siteName,
+          laneId,
+          image,
+          frame,
+        } = data;
+
+        // Validate required fields
+        if (!numberPlate || !siteId) {
+          console.error("❌ Missing required fields: numberPlate or siteId");
+          socket.emit("anpr:error", {
+            message: "Missing required fields: numberPlate or siteId",
+          });
+          return;
+        }
+
+        // Get site details
+        const site = await Site.findById(siteId)
+          .populate("clientId")
+          .populate("defaultVendorId");
+
+        if (!site) {
+          console.error("❌ Site not found:", siteId);
+          socket.emit("anpr:error", {
+            message: "Site not found",
+          });
+          return;
+        }
+
+        // Find or create vehicle
+        let vehicle = await Vehicle.findOne({
+          vehicleNumber: numberPlate.toUpperCase(),
+          siteId,
+        });
+
+        if (!vehicle) {
+          console.log("📝 Creating new vehicle:", numberPlate);
+
+          vehicle = await Vehicle.create({
+            vehicleNumber: numberPlate.toUpperCase(),
+            vehicleType: vehicleType || "OTHER",
+            siteId,
+            clientId: site.clientId._id,
+            vendorId: site.defaultVendorId?._id || site.clientId._id,
+            isInside: isEntry,
+            lastDetectedAt: timestamp || new Date(),
+            lastAnprImage: image || "",
+          });
+        } else {
+          // Update existing vehicle
+          vehicle.lastDetectedAt = timestamp || new Date();
+          vehicle.lastAnprImage = image || "";
+          vehicle.isInside = isEntry;
+          
+          if (isEntry) {
+            vehicle.lastEntryAt = timestamp || new Date();
+          } else {
+            vehicle.lastExitAt = timestamp || new Date();
+          }
+          
+          await vehicle.save();
+        }
+
+        // Handle Entry
+        if (isEntry) {
+          // Check if there's an open trip
+          const existingTrip = await Trip.findOne({
+            vehicleId: vehicle._id,
+            siteId,
+            status: { $in: ["INSIDE", "active"] },
+          });
+
+          if (existingTrip) {
+            console.log("⚠️ Vehicle already has an open trip:", existingTrip.tripId);
+            
+            // Broadcast warning
+            io.emit("anpr:duplicate-entry", {
+              message: "Vehicle already inside",
+              existingTrip,
+              vehicle,
+            });
+          } else {
+            // Get supervisor and project manager from site
+            const supervisorId = site.supervisorId || site.createdBy;
+            const projectManagerId = site.projectManagerId || site.createdBy;
+
+            // Create new trip for entry
+            const newTrip = await Trip.create({
+              clientId: site.clientId._id,
+              siteId,
+              vehicleId: vehicle._id,
+              vendorId: vehicle.vendorId,
+              supervisorId,
+              projectManagerId,
+              plateText: numberPlate.toUpperCase(),
+              status: "INSIDE",
+              loadStatus: "FULL", // Default, can be updated later
+              purpose: "Auto-detected Entry",
+              entryAt: timestamp || new Date(),
+              entryGate: cameraName || "Auto ANPR",
+              entryMedia: {
+                photos: image ? [image] : [],
+                video: "",
+                challanImage: image || frame || "",
+              },
+              anprImage: image || "",
+              createdBy: supervisorId,
+            });
+
+            console.log("✅ Entry trip created:", newTrip.tripId);
+
+            // Broadcast to all connected clients
+            io.emit("anpr:trip-created", {
+              trip: newTrip,
+              vehicle,
+              type: "ENTRY",
+            });
+          }
+        }
+
+        // Handle Exit
+        if (!isEntry) {
+          // Find the open trip for this vehicle
+          const openTrip = await Trip.findOne({
+            vehicleId: vehicle._id,
+            siteId,
+            status: { $in: ["INSIDE", "active"] },
+          });
+
+          if (openTrip) {
+            // Update trip with exit details
+            openTrip.status = "EXITED";
+            openTrip.exitAt = timestamp || new Date();
+            openTrip.exitGate = cameraName || "Auto ANPR";
+            openTrip.exitMedia = {
+              photos: image ? [image] : [],
+              video: "",
+              challanImage: image || frame || "",
+            };
+
+            await openTrip.save();
+
+            const duration = openTrip.getDuration();
+            console.log("✅ Trip closed:", openTrip.tripId, "Duration:", duration);
+
+            // Broadcast to all connected clients
+            io.emit("anpr:trip-completed", {
+              trip: openTrip,
+              vehicle,
+              type: "EXIT",
+              duration,
+            });
+          } else {
+            console.log("⚠️ No open trip found for exit:", numberPlate);
+
+            // Broadcast warning
+            io.emit("anpr:exit-without-entry", {
+              message: "No entry record found for this vehicle",
+              vehicle,
+              plateText: numberPlate,
+            });
+          }
+        }
+
+        // Broadcast the original event to all clients
+        io.emit("anpr:new-event", data);
+
+      } catch (error) {
+        console.error("❌ Error processing ANPR event:", error);
+        socket.emit("anpr:error", {
+          message: "Failed to process ANPR event",
+          error: error.message,
+        });
+      }
+    });
+
+    socket.on("disconnect", () => {
+      console.log("❌ Client disconnected:", socket.id);
+    });
+  });
+};
+
+// Manual entry endpoint
+export const createManualEntry = async (req, res, next) => {
+  try {
+    const {
+      numberPlate,
+      vehicleType,
+      cameraName,
+      direction,
+      speed,
+      isEntry,
+      timestamp,
+      siteId,
+      siteName,
+      laneId,
+      vehicleImage,
+      frameImage,
+      notes,
+      driverName,
+      driverPhone,
+      purpose,
+      loadStatus,
+    } = req.body;
+
+    // Validate required fields
+    if (!numberPlate || !siteId) {
+      return res.status(400).json({
+        message: "Number plate and site ID are required",
+      });
+    }
+
+    // Get site details
+    const site = await Site.findById(siteId)
+      .populate("clientId")
+      .populate("defaultVendorId");
+
+    if (!site) {
+      return res.status(404).json({
+        message: "Site not found",
+      });
+    }
+
+    // Find or create vehicle
+    let vehicle = await Vehicle.findOne({
+      vehicleNumber: numberPlate.toUpperCase(),
+      siteId,
+    });
+
+    if (!vehicle) {
+      vehicle = await Vehicle.create({
+        vehicleNumber: numberPlate.toUpperCase(),
+        vehicleType: vehicleType || "OTHER",
+        siteId,
+        clientId: site.clientId._id,
+        vendorId: site.defaultVendorId?._id || site.clientId._id,
+        driverName: driverName || "",
+        driverPhone: driverPhone || "",
+        isInside: isEntry,
+        lastDetectedAt: timestamp || new Date(),
+        lastAnprImage: vehicleImage || "",
+        createdBy: req.user?._id,
+      });
+    } else {
+      // Update vehicle info
+      vehicle.lastDetectedAt = timestamp || new Date();
+      vehicle.lastAnprImage = vehicleImage || "";
+      vehicle.isInside = isEntry;
+      vehicle.driverName = driverName || vehicle.driverName;
+      vehicle.driverPhone = driverPhone || vehicle.driverPhone;
+      
+      if (isEntry) {
+        vehicle.lastEntryAt = timestamp || new Date();
+      } else {
+        vehicle.lastExitAt = timestamp || new Date();
+      }
+      
+      await vehicle.save();
+    }
+
+    // Create or update trip
+    if (isEntry) {
+      // Check for existing open trip
+      const existingTrip = await Trip.findOne({
+        vehicleId: vehicle._id,
+        siteId,
+        status: { $in: ["INSIDE", "active"] },
+      });
+
+      if (existingTrip) {
+        return res.status(400).json({
+          message: "Vehicle already has an open trip",
+          trip: existingTrip,
+        });
+      }
+
+      // Get supervisor and project manager
+      const supervisorId = req.user?._id || site.supervisorId || site.createdBy;
+      const projectManagerId = site.projectManagerId || site.createdBy;
+
+      // Create new trip
+      const newTrip = await Trip.create({
+        clientId: site.clientId._id,
+        siteId,
+        vehicleId: vehicle._id,
+        vendorId: vehicle.vendorId,
+        supervisorId,
+        projectManagerId,
+        plateText: numberPlate.toUpperCase(),
+        status: "INSIDE",
+        loadStatus: loadStatus || "FULL",
+        purpose: purpose || notes || "Manual Entry",
+        notes: notes || "",
+        entryAt: timestamp || new Date(),
+        entryGate: cameraName || "Manual Entry",
+        entryMedia: {
+          photos: vehicleImage ? [vehicleImage] : [],
+          video: "",
+          challanImage: vehicleImage || frameImage || "",
+        },
+        anprImage: vehicleImage || "",
+        createdBy: supervisorId,
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: "Manual entry created successfully",
+        data: {
+          trip: newTrip,
+          vehicle,
+        },
+      });
+    } else {
+      // Handle manual exit
+      const openTrip = await Trip.findOne({
+        vehicleId: vehicle._id,
+        siteId,
+        status: { $in: ["INSIDE", "active"] },
+      });
+
+      if (!openTrip) {
+        return res.status(404).json({
+          message: "No open trip found for this vehicle",
+        });
+      }
+
+      // Update trip with exit details
+      openTrip.status = "EXITED";
+      openTrip.exitAt = timestamp || new Date();
+      openTrip.exitGate = cameraName || "Manual Exit";
+      openTrip.exitMedia = {
+        photos: vehicleImage ? [vehicleImage] : [],
+        video: "",
+        challanImage: vehicleImage || frameImage || "",
+      };
+      
+      if (notes) {
+        openTrip.notes = openTrip.notes 
+          ? `${openTrip.notes}\nExit Notes: ${notes}` 
+          : notes;
+      }
+
+      await openTrip.save();
+
+      const duration = openTrip.getDuration();
+
+      return res.status(200).json({
+        success: true,
+        message: "Manual exit recorded successfully",
+        data: {
+          trip: openTrip,
+          vehicle,
+          duration,
+        },
+      });
+    }
+  } catch (error) {
+    console.error("❌ Manual entry error:", error);
+    next(error);
+  }
+};
+
+// Get active vehicles (vehicles currently inside)
+export const getActiveVehicles = async (req, res, next) => {
+  try {
+    const { siteId } = req.query;
+
+    if (!siteId) {
+      return res.status(400).json({
+        message: "Site ID is required",
+      });
+    }
+
+    const OVERSTAY_MINUTES = 240; // 4 hours
+
+    const trips = await Trip.find({
+      siteId,
+      status: { $in: ["INSIDE", "active"] },
+    })
+      .populate("vendorId", "name")
+      .populate("vehicleId", "vehicleNumber vehicleType driverName driverPhone")
+      .sort({ entryAt: -1 })
+      .lean();
+
+    const now = Date.now();
+
+    const formatted = trips.map((t) => {
+      const entryTime = new Date(t.entryAt);
+      const durationMinutes = Math.floor((now - entryTime.getTime()) / (1000 * 60));
+
+      return {
+        _id: t._id,
+        tripId: t.tripId,
+        vehicleNumber: t.vehicleId?.vehicleNumber || t.plateText || "Unknown",
+        vehicleType: t.vehicleId?.vehicleType || "Unknown",
+        vendor: t.vendorId?.name || "Unknown",
+        driver: t.vehicleId?.driverName || "N/A",
+        driverPhone: t.vehicleId?.driverPhone || "N/A",
+        entryTime: entryTime.toLocaleString(),
+        entryTimeISO: entryTime.toISOString(),
+        duration: `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}m`,
+        durationMinutes,
+        status: durationMinutes > OVERSTAY_MINUTES ? "overstay" : "loading",
+        loadStatus: t.loadStatus,
+        purpose: t.purpose || "N/A",
+        entryGate: t.entryGate || "N/A",
+      };
+    });
+
+    res.json({
+      success: true,
+      count: formatted.length,
+      data: formatted,
+    });
+  } catch (err) {
+    console.error("❌ Get active vehicles error:", err);
+    next(err);
+  }
+};
+
+// Get trip history
+export const getTripHistory = async (req, res, next) => {
+  try {
+    const { siteId, startDate, endDate, status, page = 1, limit = 50 } = req.query;
+
+    if (!siteId) {
+      return res.status(400).json({
+        message: "Site ID is required",
+      });
+    }
+
+    const query = { siteId };
+
+    if (status) {
+      query.status = status;
+    }
+
+    if (startDate || endDate) {
+      query.entryAt = {};
+      if (startDate) query.entryAt.$gte = new Date(startDate);
+      if (endDate) query.entryAt.$lte = new Date(endDate);
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [trips, total] = await Promise.all([
+      Trip.find(query)
+        .populate("vendorId", "name")
+        .populate("vehicleId", "vehicleNumber vehicleType driverName driverPhone")
+        .sort({ entryAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Trip.countDocuments(query),
+    ]);
+
+    const formatted = trips.map((t) => ({
+      _id: t._id,
+      tripId: t.tripId,
+      vehicleNumber: t.vehicleId?.vehicleNumber || t.plateText,
+      vehicleType: t.vehicleId?.vehicleType,
+      vendor: t.vendorId?.name,
+      driver: t.vehicleId?.driverName,
+      status: t.status,
+      loadStatus: t.loadStatus,
+      entryAt: t.entryAt,
+      exitAt: t.exitAt,
+      duration: t.exitAt ? t.getDuration() : null,
+      purpose: t.purpose,
+      entryGate: t.entryGate,
+      exitGate: t.exitGate,
+    }));
+
+    res.json({
+      success: true,
+      count: formatted.length,
+      total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / limit),
+      data: formatted,
+    });
+  } catch (err) {
+    console.error("❌ Get trip history error:", err);
     next(err);
   }
 };

@@ -107,7 +107,7 @@ router.get(
   getanalytics
 );
 router.post('/vendors', verifyAccessToken, authorizeRoles('project_manager'), createVendor);
-router.get('/vendors', verifyAccessToken, authorizeRoles('project_manager'), getVendors);
+router.get('/vendors', verifyAccessToken, authorizeRoles('project_manager','supervisor'), getVendors);
 router.patch('/vendors/:id', verifyAccessToken, authorizeRoles('project_manager'), updateVendor);
 router.patch('/vendors/:id/toggle-status', verifyAccessToken, authorizeRoles('project_manager'), toggleVendorStatus);
 router.delete('/vendors/:id', verifyAccessToken, authorizeRoles('project_manager'), deleteVendor);
