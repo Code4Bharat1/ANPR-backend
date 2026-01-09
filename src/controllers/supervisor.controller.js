@@ -709,11 +709,21 @@ export const createManualEntry = async (req, res, next) => {
       loadStatus,
     } = req.body;
 
-    console.log('📝 Manual entry request:', {
+    // 🔹 Normalize timestamp (single source of truth)
+    const eventTime = timestamp ? new Date(timestamp) : new Date();
+
+    // 🔹 IST formatted time (for response / logs only)
+    const eventTimeIST = eventTime.toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+    });
+
+    console.log("📝 Manual entry request:", {
       numberPlate,
       vehicleType,
       isEntry,
-      siteId
+      siteId,
+      eventTimeUTC: eventTime,
+      eventTimeIST,
     });
 
     if (!numberPlate || !siteId) {
@@ -732,7 +742,7 @@ export const createManualEntry = async (req, res, next) => {
       });
     }
 
-    // Find or create vehicle
+    // 🔹 Find or create vehicle
     let vehicle = await Vehicle.findOne({
       vehicleNumber: numberPlate.toUpperCase(),
       siteId,
@@ -744,26 +754,27 @@ export const createManualEntry = async (req, res, next) => {
         vehicleType: vehicleType || "OTHER",
         siteId,
         clientId: site.clientId._id,
-        vendorId: site.clientId._id, // Use client as default vendor
+        vendorId: site.clientId._id,
         driverName: driverName || "",
         isInside: isEntry,
-        lastDetectedAt: timestamp || new Date(),
+        lastDetectedAt: eventTime,
         createdBy: site.createdBy,
       });
     } else {
-      vehicle.lastDetectedAt = timestamp || new Date();
+      vehicle.lastDetectedAt = eventTime;
       vehicle.isInside = isEntry;
       vehicle.driverName = driverName || vehicle.driverName;
-      
+
       if (isEntry) {
-        vehicle.lastEntryAt = timestamp || new Date();
+        vehicle.lastEntryAt = eventTime;
       } else {
-        vehicle.lastExitAt = timestamp || new Date();
+        vehicle.lastExitAt = eventTime;
       }
-      
+
       await vehicle.save();
     }
 
+    // ================= ENTRY =================
     if (isEntry) {
       const existingTrip = await Trip.findOne({
         vehicleId: vehicle._id,
@@ -775,7 +786,7 @@ export const createManualEntry = async (req, res, next) => {
         return res.status(400).json({
           success: false,
           message: "Vehicle already has an open trip",
-          data: { tripId: existingTrip.tripId }
+          data: { tripId: existingTrip.tripId },
         });
       }
 
@@ -794,7 +805,7 @@ export const createManualEntry = async (req, res, next) => {
         loadStatus: loadStatus || "FULL",
         purpose: purpose || notes || "Manual Entry",
         notes: notes || "",
-        entryAt: timestamp || new Date(),
+        entryAt: eventTime,
         entryGate: cameraName || "Manual Entry",
         entryMedia: {
           photos: [],
@@ -804,7 +815,7 @@ export const createManualEntry = async (req, res, next) => {
         createdBy: supervisorId,
       });
 
-      console.log('✅ Manual entry created:', newTrip.tripId);
+      console.log("✅ Manual entry created:", newTrip.tripId);
 
       return res.status(201).json({
         success: true,
@@ -812,54 +823,56 @@ export const createManualEntry = async (req, res, next) => {
         data: {
           trip: newTrip,
           vehicle,
-        },
-      });
-    } else {
-      // Handle exit
-      const openTrip = await Trip.findOne({
-        vehicleId: vehicle._id,
-        siteId,
-        status: { $in: ["INSIDE", "active"] },
-      });
-
-      if (!openTrip) {
-        return res.status(404).json({
-          success: false,
-          message: "No open trip found for this vehicle",
-        });
-      }
-
-      openTrip.status = "EXITED";
-      openTrip.exitAt = timestamp || new Date();
-      openTrip.exitGate = cameraName || "Manual Exit";
-      openTrip.exitMedia = {
-        photos: [],
-        video: "",
-        challanImage: "manual-exit",
-      };
-      
-      if (notes) {
-        openTrip.notes = openTrip.notes 
-          ? `${openTrip.notes}\nExit: ${notes}` 
-          : notes;
-      }
-
-      await openTrip.save();
-
-      const duration = openTrip.getDuration();
-
-      console.log('✅ Manual exit recorded:', openTrip.tripId);
-
-      return res.status(200).json({
-        success: true,
-        message: "Manual exit recorded successfully",
-        data: {
-          trip: openTrip,
-          vehicle,
-          duration,
+          timeIST: eventTimeIST,
         },
       });
     }
+
+    // ================= EXIT =================
+    const openTrip = await Trip.findOne({
+      vehicleId: vehicle._id,
+      siteId,
+      status: { $in: ["INSIDE", "active"] },
+    });
+
+    if (!openTrip) {
+      return res.status(404).json({
+        success: false,
+        message: "No open trip found for this vehicle",
+      });
+    }
+
+    openTrip.status = "EXITED";
+    openTrip.exitAt = eventTime;
+    openTrip.exitGate = cameraName || "Manual Exit";
+    openTrip.exitMedia = {
+      photos: [],
+      video: "",
+      challanImage: "manual-exit",
+    };
+
+    if (notes) {
+      openTrip.notes = openTrip.notes
+        ? `${openTrip.notes}\nExit: ${notes}`
+        : notes;
+    }
+
+    await openTrip.save();
+
+    const duration = openTrip.getDuration();
+
+    console.log("✅ Manual exit recorded:", openTrip.tripId);
+
+    return res.status(200).json({
+      success: true,
+      message: "Manual exit recorded successfully",
+      data: {
+        trip: openTrip,
+        vehicle,
+        duration,
+        timeIST: eventTimeIST,
+      },
+    });
   } catch (error) {
     console.error("❌ Manual entry error:", error);
     next(error);
@@ -1185,3 +1198,34 @@ export const supervisorAnalytics = async (req, res, next) => {
 };
 
 
+
+export const getMyAssignedSite = async (req, res, next) => {
+  try {
+    const siteId = req.user.siteId;
+
+    if (!siteId) {
+      return res.status(404).json({
+        success: false,
+        message: "No site assigned to this supervisor",
+      });
+    }
+
+    const site = await Site.findById(siteId)
+      .populate("clientId", "name email")
+      .populate("projectId", "name");
+
+    if (!site) {
+      return res.status(404).json({
+        success: false,
+        message: "Assigned site not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      site,
+    });
+  } catch (error) {
+    next(error);
+  }
+};

@@ -14,7 +14,8 @@ import {
     supervisorAnalytics,
     allowVehicleExit,
     allowVehicleEntry,
-    createManualEntry
+    createManualEntry,
+    getMyAssignedSite
 } from "../controllers/supervisor.controller.js";
 
 const router = express.Router();
@@ -98,5 +99,11 @@ router.post(
   createManualEntry
 );
 
+router.get(
+  "/my-site",
+  verifyAccessToken,
+  authorizeRoles("supervisor"),
+  getMyAssignedSite
+);
 
 export default router;
