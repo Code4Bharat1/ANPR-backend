@@ -14,7 +14,7 @@ const tripSchema = new mongoose.Schema(
     // Core IDs
     tripId: {
       type: String,
-      required: true,
+      // required: true,
       unique: true
     },
     clientId: { 
