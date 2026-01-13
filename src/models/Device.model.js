@@ -20,7 +20,6 @@ const deviceSchema = new mongoose.Schema(
     devicetype: {
       type: String,
       enum: ["ANPR", "BARRIER", "BIOMETRIC"],
-      required: true,
     },
 
 
@@ -64,3 +63,5 @@ const deviceSchema = new mongoose.Schema(
 );
 
 export default mongoose.model("Device", deviceSchema);
+
+
