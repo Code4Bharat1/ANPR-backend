@@ -8,15 +8,12 @@ import {
     assignSite,
     toggleSupervisor,
     supervisorDashboard,
-    getActiveVehicles,
-    getTripHistory,
-    exportTripHistory,
     supervisorAnalytics,
-    allowVehicleExit,
-    allowVehicleEntry,
-    createManualEntry,
-    getMyAssignedSite
+  
+    getMyAssignedSite,
+    getActiveVehicles
 } from "../controllers/supervisor.controller.js";
+import { createManualTrip, exportTripHistory, getActiveTrips, getTripHistory, updateTrip } from "../controllers/trip.controller.js";
 
 const router = express.Router();
 
@@ -84,19 +81,20 @@ router.post(
   "/vehicles/exit",
   verifyAccessToken,
   authorizeRoles("supervisor"),
-  allowVehicleExit
+  updateTrip
 );
 router.post(
   "/vehicles/entry",
   verifyAccessToken,
   authorizeRoles("supervisor"),
-  allowVehicleEntry
+  getActiveTrips
 );
 
 router.post(
   "/trips/manual",
-  
-  createManualEntry
+  verifyAccessToken,
+  authorizeRoles("supervisor"),
+  createManualTrip
 );
 
 router.get(

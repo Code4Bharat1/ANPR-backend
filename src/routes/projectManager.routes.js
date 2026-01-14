@@ -8,28 +8,27 @@ import {
   updateProjectManager,
   toggleProjectManager,
   getDashboardStats,
-  getMySites,
-  getSiteDetails,
+
   createSupervisor,
   getAllSupervisors,
   assignSiteToSupervisor,
   toggleSupervisorStatus,
   getLiveVehicles,
-  getTripReports,
   getVendors,
   getProfile,
   createVendor,
   toggleVendorStatus,
   deleteVendor,
-  exportReportsToExcel,
-  getReportStats,
   getanalytics,
   updateProfile,
   getProfileStats,
   getSettings,
   updateSettings,
+  
 } from '../controllers/projectManager.controller.js';
 import { updateVendor } from '../controllers/vendor.controller.js';
+import { exportReportsToExcel, getReportStats, getTripReports } from '../controllers/report.controller.js';
+import { addVehicleToSite, getMySites, getPMSiteDetails, getSiteActivity, getSiteTraffic, logVehicleMovement, removeVehicleFromSite, updateVehicleStatus } from '../controllers/site.controller.js';
 
 const router = express.Router();
 
@@ -65,9 +64,29 @@ router.patch(
 // Dashboard stats
 router.get('/dashboard/stats', verifyAccessToken, authorizeRoles('project_manager'), getDashboardStats);
 
-// Sites routes
-router.get('/sites', verifyAccessToken, authorizeRoles('project_manager'), getMySites);
-router.get('/sites/:id', verifyAccessToken, authorizeRoles('project_manager'), getSiteDetails);
+// Site routes
+router.get("/sites", authorizeRoles('project_manager'), getMySites);
+router.get("/sites/:id", authorizeRoles('project_manager'), getPMSiteDetails);
+router.get("/sites/:id/traffic", authorizeRoles('project_manager'), getSiteTraffic);
+router.get("/sites/:id/activity", authorizeRoles('project_manager'), getSiteActivity);
+// Log vehicle entry or exit
+router.post('/sites/log-vehicle', authorizeRoles('project_manager'), logVehicleMovement);
+
+// Update live vehicle status
+router.put('/sites/update-vehicle-status', authorizeRoles('project_manager'), updateVehicleStatus);
+
+// Add vehicle to site
+router.post('/sites/add-vehicle', authorizeRoles('project_manager'), addVehicleToSite);
+
+// Remove vehicle from site
+router.delete('/sites/remove-vehicle', authorizeRoles('project_manager'), removeVehicleFromSite);
+
+
+// Vehicle management routes
+router.post("/vehicles/log", authorizeRoles('project_manager'), logVehicleMovement);
+router.put("/vehicles/status", authorizeRoles('project_manager'), updateVehicleStatus);
+router.post("/vehicles/add", authorizeRoles('project_manager'), addVehicleToSite);
+router.post("/vehicles/remove", authorizeRoles('project_manager'), removeVehicleFromSite);
 
 // Supervisor routes
 router.post('/supervisors', verifyAccessToken, authorizeRoles('project_manager'), createSupervisor);

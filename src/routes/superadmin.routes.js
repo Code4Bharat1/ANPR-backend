@@ -3,6 +3,7 @@ import { verifyAccessToken } from "../middlewares/auth.middleware.js";
 import { authorizeRoles } from "../middlewares/role.middleware.js";
 import * as SA from "../controllers/superadmin.controller.js";
 import { checkDeviceLimit } from "../middlewares/checkDeviceLimit.middleware.js";
+import { createClientSite,  deleteClientSite,   getAdminSiteById,   getAllSites, getSitesByClient, toggleClientSite, updateClientSite, } from "../controllers/site.controller.js";
 
 const router = express.Router();
 const guard = [verifyAccessToken, authorizeRoles("superadmin")];
@@ -25,13 +26,13 @@ router.patch("/clients/:id/deactivate", ...guard, SA.deactivateClient);
 /* ======================================================
    SITE ROUTES
 ====================================================== */
-router.get('/sites', ...guard,SA.getAllSites);                    // Get all sites
-router.get('/sites/:id', ...guard,SA.getSiteById);                // Get single site
-router.post('/sites',...guard,SA.createSite);                     // Create new site
-router.put('/sites/:id',...guard,SA.updateSite);                  // Update site
-router.delete('/sites/:id', ...guard,SA.deleteSite);               // Delete/deactivate site
-router.patch('/sites/:id/toggle', ...guard,SA.toggleSiteStatus);   // Activate/deactivate site
-router.get('/clients/:clientId/sites', ...guard,SA.getSitesByClient); // Get sites by client
+router.get('/sites', getAllSites);                    // Get all sites
+router.get('/sites/:id', getAdminSiteById);                // Get single site
+router.post('/sites',createClientSite);                     // Create new site
+router.put('/sites/:id',updateClientSite);                  // Update site
+router.delete('/sites/:id', deleteClientSite);               // Delete/deactivate site
+router.patch('/sites/:id/toggle',toggleClientSite);   // Activate/deactivate site
+router.get('/clients/:clientId/sites', getSitesByClient); // Get sites by client
 
 // Devices
 // router.get("/devices/stats", ...guard, SA.deviceStats);

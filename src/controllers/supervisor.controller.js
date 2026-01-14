@@ -1,5 +1,6 @@
 // controllers/supervisor.controller.js
 import Supervisor from "../models/supervisor.model.js";
+import ProjectManager from "../models/ProjectManager.model.js"; // Added missing import
 import Trip from "../models/Trip.model.js";
 import Site from "../models/Site.model.js";
 import Vehicle from "../models/Vehicle.model.js";
@@ -9,34 +10,73 @@ import { Parser } from "json2csv";
 import ExcelJS from "exceljs";
 import mongoose from "mongoose";
 
-
 /**
- * Create Supervisor
+ * CREATE SUPERVISOR
  */
 export const createSupervisor = async (req, res, next) => {
   try {
+    if (!req.user || !req.user.clientId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
     const {
       name,
       email,
       mobile,
       password,
       siteId,
+      projectManagerId,
       shiftStart,
       shiftEnd,
     } = req.body;
 
-        const supervisor = await Supervisor.create({
+    // Validate required fields
+    if (!name || !email || !mobile || !password) {
+      return res.status(400).json({ 
+        message: "Name, email, mobile and password are required" 
+      });
+    }
+
+    if (!projectManagerId) {
+      return res.status(400).json({ 
+        message: "Project Manager is required" 
+      });
+    }
+
+    // ✅ Fetch PM to get clientId
+    const pm = await ProjectManager.findById(projectManagerId).select("clientId");
+    if (!pm) {
+      return res.status(404).json({ message: "Project Manager not found" });
+    }
+
+    // Check if email already exists
+    const existingSupervisor = await Supervisor.findOne({ email });
+    if (existingSupervisor) {
+      return res.status(409).json({ 
+        message: "Supervisor with this email already exists" 
+      });
+    }
+
+    const supervisor = await Supervisor.create({
       name,
       email,
       mobile,
       password: await hashPassword(password),
       siteId,
-      clientId: req.user.clientId,
+      clientId: pm.clientId, // ✅ AUTO SET from PM
+      projectManagerId,
       shiftStart,
       shiftEnd,
+      createdBy: req.user.id,
     });
 
-    // attach supervisor to site
+    // Attach supervisor to project manager
+    await ProjectManager.findByIdAndUpdate(
+      projectManagerId,
+      { $addToSet: { supervisors: supervisor._id } }
+    );
+
+    // Attach supervisor to site
     if (siteId) {
       await Site.findByIdAndUpdate(siteId, {
         $addToSet: { supervisors: supervisor._id },
@@ -50,55 +90,173 @@ export const createSupervisor = async (req, res, next) => {
       newValue: supervisor,
     });
 
-    res.status(201).json(supervisor);
-  } catch (e) {
-    next(e);
+    res.status(201).json({
+      message: "Supervisor created successfully",
+      data: supervisor,
+    });
+  } catch (err) {
+    next(err);
   }
 };
 
 /**
- * Get all supervisors
+ * GET ALL SUPERVISORS (Client Admin)
  */
 export const getSupervisors = async (req, res, next) => {
   try {
-    const supervisors = await Supervisor.find({
-      clientId: req.user.clientId,
-    })
+    // 🔐 Safety checks
+    if (!req.user || !req.user.clientId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const clientId = req.user.clientId;
+
+    const supervisors = await Supervisor.find({ clientId })
       .populate("siteId", "name location")
-      .populate("projectManagerId")
+      .populate("projectManagerId", "name email")
       .select("-password")
       .sort({ createdAt: -1 });
 
-    res.json(supervisors);
-  } catch (e) {
-    next(e);
+    res.json({
+      count: supervisors.length,
+      data: supervisors,
+    });
+  } catch (err) {
+    next(err);
   }
 };
 
 /**
- * Assign / Change Site
+ * UPDATE SUPERVISOR (Client / Admin)
+ */
+export const updateSupervisor = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // 🛑 ObjectId validation
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid Supervisor ID" });
+    }
+
+    const supervisor = await Supervisor.findById(id);
+    if (!supervisor) {
+      return res.status(404).json({ message: "Supervisor not found" });
+    }
+
+    /**
+     * 🔐 AUTHORIZATION
+     * Client → only same client supervisors
+     * Admin  → all supervisors
+     */
+    if (
+      req.user.role === "client" &&
+      String(supervisor.clientId) !== String(req.user.clientId)
+    ) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    // ✅ Allowed fields only
+    const {
+      name,
+      email,
+      mobile,
+      address,
+      status,
+      siteId,
+      projectManagerId,
+      isActive,
+      shiftStart,
+      shiftEnd,
+    } = req.body;
+
+    const oldValue = supervisor.toObject();
+
+    if (name !== undefined) supervisor.name = name;
+    if (email !== undefined) supervisor.email = email.toLowerCase().trim();
+    if (mobile !== undefined) supervisor.mobile = mobile;
+
+    // 🔐 Address safe update
+    if (address !== undefined && address.trim() !== "") {
+      supervisor.address = address;
+    }
+
+    if (status !== undefined) supervisor.status = status;
+    if (siteId !== undefined) supervisor.siteId = siteId;
+    if (projectManagerId !== undefined) supervisor.projectManagerId = projectManagerId;
+    if (isActive !== undefined) supervisor.isActive = isActive;
+    if (shiftStart !== undefined) supervisor.shiftStart = shiftStart;
+    if (shiftEnd !== undefined) supervisor.shiftEnd = shiftEnd;
+
+    supervisor.updatedBy = req.user.id;
+    supervisor.updatedAt = new Date();
+
+    await supervisor.save();
+
+    await logAudit({
+      req,
+      action: "UPDATE",
+      module: "SUPERVISOR",
+      oldValue: oldValue,
+      newValue: supervisor,
+    });
+
+    res.json({
+      success: true,
+      message: "Supervisor updated successfully",
+      data: {
+        id: supervisor._id,
+        name: supervisor.name,
+        email: supervisor.email,
+        mobile: supervisor.mobile,
+        status: supervisor.status,
+        siteId: supervisor.siteId,
+        projectManagerId: supervisor.projectManagerId,
+        isActive: supervisor.isActive,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * ASSIGN / CHANGE SITE
  */
 export const assignSite = async (req, res, next) => {
   try {
     const { siteId } = req.body;
     const supervisorId = req.params.id;
 
+    if (!siteId) {
+      return res.status(400).json({ message: "Site ID is required" });
+    }
+
     const supervisor = await Supervisor.findById(supervisorId);
     if (!supervisor) {
       return res.status(404).json({ message: "Supervisor not found" });
     }
 
-    // remove from old site
+    // Check authorization
+    if (String(supervisor.clientId) !== String(req.user.clientId)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const oldValue = supervisor.toObject();
+
+    // Remove from old site
     if (supervisor.siteId) {
       await Site.findByIdAndUpdate(supervisor.siteId, {
         $pull: { supervisors: supervisor._id },
       });
     }
 
-    // assign new site
+    // Assign new site
     supervisor.siteId = siteId;
+    supervisor.updatedBy = req.user.id;
+    supervisor.updatedAt = new Date();
     await supervisor.save();
 
+    // Add to new site
     await Site.findByIdAndUpdate(siteId, {
       $addToSet: { supervisors: supervisor._id },
     });
@@ -107,17 +265,22 @@ export const assignSite = async (req, res, next) => {
       req,
       action: "ASSIGN_SITE",
       module: "SUPERVISOR",
+      oldValue: oldValue,
       newValue: supervisor,
     });
 
-    res.json(supervisor);
+    res.json({
+      success: true,
+      message: "Site assigned successfully",
+      data: supervisor,
+    });
   } catch (e) {
     next(e);
   }
 };
 
 /**
- * Enable / Disable Supervisor
+ * ENABLE / DISABLE SUPERVISOR
  */
 export const toggleSupervisor = async (req, res, next) => {
   try {
@@ -126,27 +289,37 @@ export const toggleSupervisor = async (req, res, next) => {
       return res.status(404).json({ message: "Supervisor not found" });
     }
 
+    // Check authorization
+    if (String(supervisor.clientId) !== String(req.user.clientId)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const oldValue = supervisor.toObject();
     supervisor.isActive = !supervisor.isActive;
+    supervisor.updatedBy = req.user.id;
+    supervisor.updatedAt = new Date();
     await supervisor.save();
 
     await logAudit({
       req,
       action: "TOGGLE",
       module: "SUPERVISOR",
+      oldValue: oldValue,
       newValue: supervisor,
     });
 
-    res.json(supervisor);
+    res.json({
+      success: true,
+      message: `Supervisor ${supervisor.isActive ? 'enabled' : 'disabled'} successfully`,
+      data: supervisor,
+    });
   } catch (e) {
     next(e);
   }
 };
 
-
 /**
- * @desc   Get supervisor dashboard with stats and recent activity
- * @route  GET /api/supervisor/dashboard
- * @access Supervisor
+ * GET SUPERVISOR DASHBOARD
  */
 export const supervisorDashboard = async (req, res, next) => {
   try {
@@ -154,26 +327,11 @@ export const supervisorDashboard = async (req, res, next) => {
 
     // Enhanced error checking
     if (!siteId) {
-      console.error('❌ Supervisor siteId missing:', {
-        userId: req.user._id,
-        role: req.user.role,
-        siteId: req.user.siteId
-      });
-      
       return res.status(400).json({
         success: false,
         message: "Supervisor not assigned to any site",
-        debug: {
-          userId: req.user._id,
-          hasSiteId: !!req.user.siteId
-        }
       });
     }
-
-    console.log('✅ Dashboard request for supervisor:', {
-      supervisorId: req.user._id,
-      siteId: siteId
-    });
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -226,29 +384,20 @@ export const supervisorDashboard = async (req, res, next) => {
           .limit(10)
           .populate("vehicleId", "vehicleNumber vehicleType")
           .populate("vendorId", "name")
-          .lean()
-          .exec(),
+          .lean(),
 
         // Site info
-        Site.findById(siteId).lean().exec(),
+        Site.findById(siteId).lean(),
       ]);
-
-      console.log('📊 Dashboard stats:', {
-        vehiclesInside,
-        todayEntry,
-        todayExit,
-        recentTripsCount: recentTrips?.length || 0
-      });
 
       if (!site) {
         return res.status(404).json({
           success: false,
           message: "Assigned site not found",
-          siteId
         });
       }
 
-      // Format recent activity with null safety
+      // Format recent activity
       const recentActivity = (recentTrips || []).map((t) => {
         const vehicleNumber = t.vehicleId?.vehicleNumber || t.plateText || "Unknown";
         const entryTime = t.entryAt || t.createdAt;
@@ -291,54 +440,31 @@ export const supervisorDashboard = async (req, res, next) => {
       });
 
     } catch (queryError) {
-      console.error('❌ Dashboard query error:', queryError);
+      console.error('Dashboard query error:', queryError);
       throw queryError;
     }
 
   } catch (err) {
-    console.error('❌ Dashboard error:', err);
+    console.error('Dashboard error:', err);
     next(err);
   }
 };
 
 /**
- * @desc   Get active vehicles (currently inside)
- * @route  GET /api/supervisor/vehicles/active
- * @access Supervisor
+ * GET ACTIVE VEHICLES
  */
 export const getActiveVehicles = async (req, res, next) => {
   try {
-    // Get siteId from query parameter OR authenticated user
     const siteId = req.query.siteId || req.user?.siteId;
 
-    console.log('🚗 Get active vehicles request:', {
-      siteId,
-      fromQuery: req.query.siteId,
-      fromUser: req.user?.siteId,
-      query: req.query,
-      hasAuth: !!req.user
-    });
-
     if (!siteId) {
-      console.error('❌ Missing siteId in both query and user session');
       return res.status(400).json({
         success: false,
-        message: "Site ID is required. Either pass as ?siteId=... or ensure supervisor is assigned to a site.",
-        debug: {
-          querySiteId: req.query.siteId,
-          userSiteId: req.user?.siteId,
-          userId: req.user?._id,
-          hint: "Add ?siteId=YOUR_SITE_ID to the request URL"
-        }
+        message: "Site ID is required",
       });
     }
 
     const OVERSTAY_MINUTES = 240; // 4 hours
-
-    console.log('🔍 Querying trips with:', {
-      siteId,
-      status: ["INSIDE", "active"]
-    });
 
     const trips = await Trip.find({
       siteId: new mongoose.Types.ObjectId(siteId),
@@ -348,11 +474,6 @@ export const getActiveVehicles = async (req, res, next) => {
       .populate("vehicleId", "vehicleNumber vehicleType driverName driverPhone")
       .sort({ entryAt: -1 })
       .lean();
-
-    console.log('📊 Found trips:', {
-      count: trips.length,
-      tripIds: trips.map(t => t.tripId || t._id)
-    });
 
     const now = Date.now();
 
@@ -379,618 +500,21 @@ export const getActiveVehicles = async (req, res, next) => {
       };
     });
 
-    console.log('✅ Active vehicles fetched:', {
-      count: formatted.length,
-      vehicles: formatted.map(v => v.vehicleNumber)
-    });
-
     res.json({
       success: true,
       count: formatted.length,
-      siteId, // Include for debugging
       data: formatted,
     });
   } catch (err) {
-    console.error("❌ Get active vehicles error:", err);
+    console.error("Get active vehicles error:", err);
     next(err);
   }
 };
 
-/**
- * @desc   Get trip history with filters
- * @route  GET /api/supervisor/trips
- * @access Supervisor
- */
-// Backend: controllers/supervisorController.js (or similar)
-export const getTripHistory = async (req, res) => {
-  try {
-    const { period } = req.query;
-    const siteId = req.user.siteId; // Get from authenticated user
-    
-    if (!siteId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Site ID not found. Please contact administrator.' 
-      });
-    }
-
-    // Calculate date range based on period
-    let startDate = new Date();
-    if (period === 'today') {
-      startDate.setHours(0, 0, 0, 0);
-    } else if (period === 'last7days') {
-      startDate.setDate(startDate.getDate() - 7);
-    } else {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid period parameter. Use "today" or "last7days".' 
-      });
-    }
-
-    console.log('🚗 Get trip history request:', {
-      siteId,
-      period,
-      startDate,
-      fromUser: req.user._id
-    });
-
-    // Query trips
-    const trips = await Trip.find({
-      siteId: siteId,
-      createdAt: { $gte: startDate }
-    })
-    .sort({ createdAt: -1 })
-    .lean();
-
-    // Format trips for frontend
-    const formattedTrips = trips.map(trip => ({
-      _id: trip._id,
-      tripId: trip.tripId,
-      vehicleNumber: trip.vehicleNumber,
-      vendor: trip.vendor || 'N/A',
-      driver: trip.driverName || 'N/A',
-      materialType: trip.materialType || 'N/A',
-      entryTime: new Date(trip.entryTime).toLocaleString(),
-      exitTime: trip.exitTime ? new Date(trip.exitTime).toLocaleString() : '--',
-      duration: trip.exitTime 
-        ? calculateDuration(trip.entryTime, trip.exitTime)
-        : 'Ongoing',
-      status: trip.status === 'INSIDE' ? 'active' : trip.status.toLowerCase()
-    }));
-
-    console.log('✅ Trip history fetched:', { count: formattedTrips.length });
-
-    res.json({
-      success: true,
-      data: formattedTrips,
-      count: formattedTrips.length
-    });
-
-  } catch (error) {
-    console.error('❌ Error fetching trip history:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to fetch trip history',
-      error: error.message 
-    });
-  }
-};
-
-// Helper function to calculate duration
-const calculateDuration = (entryTime, exitTime) => {
-  const diff = new Date(exitTime) - new Date(entryTime);
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-  return `${hours}h ${minutes}m`;
-};
 
 /**
- * @desc   Allow vehicle entry (manual)
- * @route  POST /api/supervisor/vehicles/entry
- * @access Supervisor
+ * SUPERVISOR ANALYTICS
  */
-export const allowVehicleEntry = async (req, res, next) => {
-  try {
-    const supervisorId = req.user._id;
-    const { siteId, clientId } = req.user;
-
-    if (!siteId || !clientId) {
-      return res.status(400).json({
-        success: false,
-        message: "Supervisor not properly configured (missing siteId or clientId)",
-      });
-    }
-
-    const {
-      vehicleNumber,
-      vehicleType,
-      driverName,
-      vendorId,
-      entryTime,
-      materialType,
-      loadStatus,
-      notes,
-      media,
-    } = req.body;
-
-    if (!vehicleNumber || !vehicleType || !vendorId) {
-      return res.status(400).json({
-        success: false,
-        message: "vehicleNumber, vehicleType and vendorId are required",
-      });
-    }
-
-    // Find or create vehicle
-    let vehicle = await Vehicle.findOne({
-      vehicleNumber: vehicleNumber.toUpperCase(),
-      siteId,
-    });
-
-    if (vehicle?.isInside) {
-      return res.status(409).json({
-        success: false,
-        message: "Vehicle is already inside the site",
-      });
-    }
-
-    if (!vehicle) {
-      vehicle = await Vehicle.create({
-        vehicleNumber: vehicleNumber.toUpperCase(),
-        vehicleType,
-        driverName,
-        vendorId,
-        siteId,
-        clientId,
-        createdBy: supervisorId,
-      });
-      console.log('✅ New vehicle created:', vehicle._id);
-    } else {
-      vehicle.driverName = driverName || vehicle.driverName;
-      vehicle.vehicleType = vehicleType;
-      vehicle.vendorId = vendorId;
-    }
-
-    vehicle.isInside = true;
-    vehicle.lastEntryAt = entryTime ? new Date(entryTime) : new Date();
-    vehicle.lastAnprImage = media?.anprImage || vehicle.lastAnprImage;
-    vehicle.lastDetectedAt = new Date();
-
-    await vehicle.save();
-
-    // Get site details for projectManagerId
-    const site = await Site.findById(siteId);
-    
-    // Create trip
-    const trip = await Trip.create({
-      clientId,
-      siteId,
-      vehicleId: vehicle._id,
-      vendorId,
-      supervisorId: supervisorId,
-      projectManagerId: site?.projectManagerId || clientId, // Fallback to clientId
-      plateText: vehicleNumber.toUpperCase(),
-      driverName,
-      entryAt: entryTime ? new Date(entryTime) : new Date(),
-      entryGate: "Main Gate",
-      status: "INSIDE",
-      purpose: materialType || "Manual Entry",
-      loadStatus: loadStatus || "FULL",
-      entryMedia: {
-        anprImage: media?.anprImage || "",
-        photos: [
-          media?.frontView,
-          media?.backView,
-          media?.driverView,
-          media?.loadView
-        ].filter(Boolean),
-        video: media?.videoClip || "",
-        challanImage: media?.challanImage || media?.frontView || "placeholder",
-      },
-      notes: notes || "",
-      createdBy: supervisorId,
-    });
-
-    console.log('✅ Trip created:', trip.tripId);
-
-    res.status(201).json({
-      success: true,
-      message: "Vehicle entry allowed successfully",
-      data: {
-        tripId: trip.tripId,
-        vehicleId: vehicle._id,
-        entryAt: trip.entryAt,
-      }
-    });
-  } catch (err) {
-    console.error("❌ Allow Vehicle Entry Error:", err);
-    next(err);
-  }
-};
-
-/**
- * @desc   Allow vehicle exit (manual)
- * @route  POST /api/supervisor/vehicles/exit
- * @access Supervisor
- */
-export const allowVehicleExit = async (req, res, next) => {
-  try {
-    const supervisorId = req.user._id;
-
-    const {
-      vehicleId, // This is tripId, not vehicle ObjectId
-      vehicleNumber,
-      exitTime,
-      exitLoadStatus,
-      exitNotes,
-      exitMedia,
-    } = req.body;
-
-    if (!vehicleId || !exitTime) {
-      return res.status(400).json({
-        success: false,
-        message: "vehicleId (tripId) and exitTime are required",
-      });
-    }
-
-    const trip = await Trip.findOne({
-      _id: vehicleId,
-      status: "INSIDE",
-    });
-
-    if (!trip) {
-      return res.status(404).json({
-        success: false,
-        message: "Active trip not found",
-      });
-    }
-
-    // Update trip
-    trip.exitAt = new Date(exitTime);
-    trip.exitGate = "Main Gate";
-    trip.status = "EXITED";
-
-    trip.exitMedia = {
-      photos: [
-        exitMedia?.frontView,
-        exitMedia?.backView,
-        exitMedia?.loadView,
-      ].filter(Boolean),
-      video: exitMedia?.videoClip || "",
-      challanImage: exitMedia?.frontView || "placeholder",
-    };
-
-    if (exitNotes) {
-      trip.notes = trip.notes 
-        ? `${trip.notes}\nExit: ${exitNotes}` 
-        : exitNotes;
-    }
-
-    await trip.save();
-
-    // Update vehicle status
-    await Vehicle.findByIdAndUpdate(trip.vehicleId, {
-      isInside: false,
-      lastExitAt: new Date(exitTime),
-    });
-
-    console.log('✅ Vehicle exit recorded:', trip.tripId);
-
-    res.json({
-      success: true,
-      message: "Vehicle exit approved successfully",
-      data: {
-        tripId: trip.tripId,
-        exitAt: trip.exitAt,
-        duration: trip.getDuration()
-      }
-    });
-  } catch (err) {
-    console.error("❌ Allow Vehicle Exit Error:", err);
-    next(err);
-  }
-};
-
-/**
- * @desc   Create manual entry (for testing/debug)
- * @route  POST /api/supervisor/trips/manual
- * @access Public (should be protected in production)
- */
-export const createManualEntry = async (req, res, next) => {
-  try {
-    const {
-      numberPlate,
-      vehicleType,
-      cameraName,
-      isEntry,
-      timestamp,
-      siteId,
-      notes,
-      driverName,
-      purpose,
-      loadStatus,
-    } = req.body;
-
-    // 🔹 Normalize timestamp (single source of truth)
-    const eventTime = timestamp ? new Date(timestamp) : new Date();
-
-    // 🔹 IST formatted time (for response / logs only)
-    const eventTimeIST = eventTime.toLocaleString("en-IN", {
-      timeZone: "Asia/Kolkata",
-    });
-
-    console.log("📝 Manual entry request:", {
-      numberPlate,
-      vehicleType,
-      isEntry,
-      siteId,
-      eventTimeUTC: eventTime,
-      eventTimeIST,
-    });
-
-    if (!numberPlate || !siteId) {
-      return res.status(400).json({
-        success: false,
-        message: "Number plate and site ID are required",
-      });
-    }
-
-    const site = await Site.findById(siteId);
-
-    if (!site) {
-      return res.status(404).json({
-        success: false,
-        message: "Site not found",
-      });
-    }
-
-    // 🔹 Find or create vehicle
-    let vehicle = await Vehicle.findOne({
-      vehicleNumber: numberPlate.toUpperCase(),
-      siteId,
-    });
-
-    if (!vehicle) {
-      vehicle = await Vehicle.create({
-        vehicleNumber: numberPlate.toUpperCase(),
-        vehicleType: vehicleType || "OTHER",
-        siteId,
-        clientId: site.clientId._id,
-        vendorId: site.clientId._id,
-        driverName: driverName || "",
-        isInside: isEntry,
-        lastDetectedAt: eventTime,
-        createdBy: site.createdBy,
-      });
-    } else {
-      vehicle.lastDetectedAt = eventTime;
-      vehicle.isInside = isEntry;
-      vehicle.driverName = driverName || vehicle.driverName;
-
-      if (isEntry) {
-        vehicle.lastEntryAt = eventTime;
-      } else {
-        vehicle.lastExitAt = eventTime;
-      }
-
-      await vehicle.save();
-    }
-
-    // ================= ENTRY =================
-    if (isEntry) {
-      const existingTrip = await Trip.findOne({
-        vehicleId: vehicle._id,
-        siteId,
-        status: { $in: ["INSIDE", "active"] },
-      });
-
-      if (existingTrip) {
-        return res.status(400).json({
-          success: false,
-          message: "Vehicle already has an open trip",
-          data: { tripId: existingTrip.tripId },
-        });
-      }
-
-      const supervisorId = site.createdBy;
-      const projectManagerId = site.projectManagerId || site.createdBy;
-
-      const newTrip = await Trip.create({
-        clientId: site.clientId._id,
-        siteId,
-        vehicleId: vehicle._id,
-        vendorId: site.clientId._id,
-        supervisorId,
-        projectManagerId,
-        plateText: numberPlate.toUpperCase(),
-        status: "INSIDE",
-        loadStatus: loadStatus || "FULL",
-        purpose: purpose || notes || "Manual Entry",
-        notes: notes || "",
-        entryAt: eventTime,
-        entryGate: cameraName || "Manual Entry",
-        entryMedia: {
-          photos: [],
-          video: "",
-          challanImage: "manual-entry",
-        },
-        createdBy: supervisorId,
-      });
-
-      console.log("✅ Manual entry created:", newTrip.tripId);
-
-      return res.status(201).json({
-        success: true,
-        message: "Manual entry created successfully",
-        data: {
-          trip: newTrip,
-          vehicle,
-          timeIST: eventTimeIST,
-        },
-      });
-    }
-
-    // ================= EXIT =================
-    const openTrip = await Trip.findOne({
-      vehicleId: vehicle._id,
-      siteId,
-      status: { $in: ["INSIDE", "active"] },
-    });
-
-    if (!openTrip) {
-      return res.status(404).json({
-        success: false,
-        message: "No open trip found for this vehicle",
-      });
-    }
-
-    openTrip.status = "EXITED";
-    openTrip.exitAt = eventTime;
-    openTrip.exitGate = cameraName || "Manual Exit";
-    openTrip.exitMedia = {
-      photos: [],
-      video: "",
-      challanImage: "manual-exit",
-    };
-
-    if (notes) {
-      openTrip.notes = openTrip.notes
-        ? `${openTrip.notes}\nExit: ${notes}`
-        : notes;
-    }
-
-    await openTrip.save();
-
-    const duration = openTrip.getDuration();
-
-    console.log("✅ Manual exit recorded:", openTrip.tripId);
-
-    return res.status(200).json({
-      success: true,
-      message: "Manual exit recorded successfully",
-      data: {
-        trip: openTrip,
-        vehicle,
-        duration,
-        timeIST: eventTimeIST,
-      },
-    });
-  } catch (error) {
-    console.error("❌ Manual entry error:", error);
-    next(error);
-  }
-};
-
-
-
-
-export const exportTripHistory = async (req, res, next) => {
-  try {
-    const siteId = req.user.siteId;
-    const { period = "last7days", format = "csv" } = req.query;
-
-    if (!siteId) {
-      return res.status(400).json({
-        message: "Supervisor not assigned to site",
-      });
-    }
-
-    /* ---------------- DATE FILTER ---------------- */
-    const now = new Date();
-    let startDate = null;
-
-    switch (period) {
-      case "today":
-        startDate = new Date();
-        startDate.setHours(0, 0, 0, 0);
-        break;
-
-      case "last7days":
-        startDate = new Date(now.setDate(now.getDate() - 7));
-        break;
-
-      case "last30days":
-        startDate = new Date(now.setDate(now.getDate() - 30));
-        break;
-
-      case "thismonth":
-        startDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-        break;
-    }
-
-    const query = { siteId };
-    if (startDate) {
-      query.entryAt = { $gte: startDate };
-    }
-
-    /* ---------------- FETCH TRIPS ---------------- */
-    const trips = await Trip.find(query)
-      .populate("vendorId", "name")
-      .sort({ entryAt: -1 })
-      .lean();
-
-    const rows = trips.map((t) => {
-      let duration = "--";
-      if (t.exitAt) {
-        const diff = new Date(t.exitAt) - new Date(t.entryAt);
-        const h = Math.floor(diff / (1000 * 60 * 60));
-        const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-        duration = `${h}h ${m}m`;
-      }
-
-      return {
-        Trip_ID: t.tripId,
-        Vehicle_Number: t.plateText,
-        Vendor: t.vendorId?.name || "Unknown",
-        Entry_Time: new Date(t.entryAt).toLocaleString(),
-        Exit_Time: t.exitAt ? new Date(t.exitAt).toLocaleString() : "--",
-        Duration: duration,
-        Status: t.status,
-        Purpose: t.purpose || "",
-      };
-    });
-
-    /* ---------------- CSV EXPORT ---------------- */
-    if (format === "csv") {
-      const parser = new Parser();
-      const csv = parser.parse(rows);
-
-      res.header("Content-Type", "text/csv");
-      res.attachment(`trip-history-${Date.now()}.csv`);
-      return res.send(csv);
-    }
-
-    /* ---------------- EXCEL EXPORT ---------------- */
-    if (format === "excel") {
-      const workbook = new ExcelJS.Workbook();
-      const sheet = workbook.addWorksheet("Trip History");
-
-      sheet.columns = Object.keys(rows[0] || {}).map((key) => ({
-        header: key.replace(/_/g, " "),
-        key,
-        width: 25,
-      }));
-
-      rows.forEach((row) => sheet.addRow(row));
-
-      res.setHeader(
-        "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      );
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename=trip-history-${Date.now()}.xlsx`
-      );
-
-      await workbook.xlsx.write(res);
-      res.end();
-      return;
-    }
-
-    res.status(400).json({ message: "Invalid export format" });
-  } catch (err) {
-    next(err);
-  }
-};
 export const supervisorAnalytics = async (req, res, next) => {
   try {
     const siteId = req.user.siteId;
@@ -1000,7 +524,7 @@ export const supervisorAnalytics = async (req, res, next) => {
       return res.status(400).json({ message: "Site not assigned" });
     }
 
-    /* ---------------- DATE RANGE ---------------- */
+    // Date range
     const now = new Date();
     let startDate;
 
@@ -1009,27 +533,23 @@ export const supervisorAnalytics = async (req, res, next) => {
         startDate = new Date();
         startDate.setHours(0, 0, 0, 0);
         break;
-
       case "last7days":
         startDate = new Date();
         startDate.setDate(startDate.getDate() - 7);
         break;
-
       case "last30days":
         startDate = new Date();
         startDate.setDate(startDate.getDate() - 30);
         break;
-
       case "thismonth":
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
         break;
-
       default:
         startDate = new Date();
         startDate.setDate(startDate.getDate() - 7);
     }
 
-    /* ---------------- BASIC COUNTS ---------------- */
+    // Basic counts
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
@@ -1057,7 +577,6 @@ export const supervisorAnalytics = async (req, res, next) => {
     });
 
     const totalEntries = weekTrips;
-
     const totalExits = await Trip.countDocuments({
       siteId,
       exitAt: { $gte: startDate },
@@ -1068,7 +587,7 @@ export const supervisorAnalytics = async (req, res, next) => {
       status: "INSIDE",
     });
 
-    /* ---------------- AVG DURATION ---------------- */
+    // Avg duration
     const completedTrips = await Trip.find({
       siteId,
       exitAt: { $ne: null },
@@ -1087,7 +606,7 @@ export const supervisorAnalytics = async (req, res, next) => {
 
     const avgDuration = `${Math.floor(avgMinutes / 60)}h ${avgMinutes % 60}m`;
 
-    /* ---------------- DAILY TRENDS ---------------- */
+    // Daily trends
     const dailyTrends = await Trip.aggregate([
       {
         $match: {
@@ -1121,7 +640,7 @@ export const supervisorAnalytics = async (req, res, next) => {
       exits: d.exits,
     }));
 
-    /* ---------------- HOURLY TRENDS ---------------- */
+    // Hourly trends
     const hourlyTrends = await Trip.aggregate([
       {
         $match: {
@@ -1145,20 +664,17 @@ export const supervisorAnalytics = async (req, res, next) => {
       count: h.count,
     }));
 
-    /* ---------------- PEAK HOUR ---------------- */
+    // Peak hour
     const peak = formattedHourly.reduce(
       (max, curr) => (curr.count > max.count ? curr : max),
       { count: 0 }
     );
 
     const peakHour = peak.hour
-      ? `${peak.hour} - ${String(Number(peak.hour.split(":")[0]) + 1).padStart(
-          2,
-          "0"
-        )}:00`
+      ? `${peak.hour} - ${String(Number(peak.hour.split(":")[0]) + 1).padStart(2, "0")}:00`
       : "--";
 
-    /* ---------------- TOP VENDORS ---------------- */
+    // Top vendors
     const topVendors = await Trip.aggregate([
       {
         $match: {
@@ -1176,7 +692,7 @@ export const supervisorAnalytics = async (req, res, next) => {
       { $limit: 5 },
     ]);
 
-    /* ---------------- RESPONSE ---------------- */
+    // Response
     res.json({
       analytics: {
         todayTrips,
@@ -1198,8 +714,9 @@ export const supervisorAnalytics = async (req, res, next) => {
   }
 };
 
-
-
+/**
+ * GET MY ASSIGNED SITE
+ */
 export const getMyAssignedSite = async (req, res, next) => {
   try {
     const siteId = req.user.siteId;
@@ -1224,7 +741,7 @@ export const getMyAssignedSite = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      site,
+      data: site,
     });
   } catch (error) {
     next(error);

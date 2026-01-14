@@ -31,23 +31,22 @@ const siteSchema = new mongoose.Schema(
       unique: true,
       sparse: true,
     },
+
     /* ======================
        GATE INFO
     ====================== */
     gates: [
-  {
-    gateName: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-    gateCode: String,
-    isMainGate: { type: Boolean, default: false },
-    isActive: { type: Boolean, default: true },
-  },
-],
-
-
+      {
+        gateName: {
+          type: String,
+          required: true,
+          trim: true,
+        },
+        gateCode: String,
+        isMainGate: { type: Boolean, default: false },
+        isActive: { type: Boolean, default: true },
+      },
+    ],
 
     /* ======================
        CONTACT INFO
@@ -83,6 +82,70 @@ const siteSchema = new mongoose.Schema(
     },
 
     /* ======================
+       VEHICLE TRACKING FIELDS (NEW)
+    ====================== */
+    totalVehicles: {
+      type: Number,
+      default: 0,
+    },
+
+    activeVehicles: {
+      type: Number,
+      default: 0,
+    },
+
+    vehiclesOnSite: {
+      type: Number,
+      default: 0,
+    },
+
+    todayEntries: {
+      type: Number,
+      default: 0,
+    },
+
+    todayExits: {
+      type: Number,
+      default: 0,
+    },
+
+    utilization: {
+      type: Number,
+      default: 0,
+    },
+
+    /* ======================
+       LIVE VEHICLE DATA (NEW)
+    ====================== */
+    liveVehicles: [
+      {
+        vehicleId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Vehicle",
+        },
+        vehicleNumber: String,
+        type: String,
+        status: {
+          type: String,
+          enum: ["Working", "Idle", "Maintenance", "Offline"],
+          default: "Idle",
+        },
+        driver: String,
+        driverId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Driver",
+        },
+        fuelLevel: Number,
+        hoursOperated: Number,
+        lastUpdate: Date,
+        location: {
+          lat: Number,
+          lng: Number,
+        },
+      },
+    ],
+
+    /* ======================
        RELATIONS
     ====================== */
     clientId: {
@@ -92,18 +155,21 @@ const siteSchema = new mongoose.Schema(
       index: true,
     },
 
-    supervisors: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Supervisor",
-      index: true,
-    }],
+    supervisors: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Supervisor",
+        index: true,
+      },
+    ],
 
-    projectManagers: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "ProjectManager",
-      index: true,
-    }],
-
+    projectManagers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "ProjectManager",
+        index: true,
+      },
+    ],
 
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -118,5 +184,7 @@ const siteSchema = new mongoose.Schema(
 ====================== */
 siteSchema.index({ name: 1, clientId: 1 });
 siteSchema.index({ status: 1 });
+siteSchema.index({ "liveVehicles.status": 1 });
 
-export default mongoose.model("Site", siteSchema);
+const Site = mongoose.model("Site", siteSchema);
+export default Site;

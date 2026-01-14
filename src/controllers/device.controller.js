@@ -259,6 +259,10 @@ export const listDevices = async (req, res, next) => {
     next(e);
   }
 };
+export const getDevices = async (req, res) => {
+  const devices = await Device.find({ clientId: req.user.clientId });
+  res.json(devices);
+};
 
 // Helper function to format device response
 function formatDeviceResponse(device) {

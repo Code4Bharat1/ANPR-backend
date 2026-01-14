@@ -131,7 +131,7 @@ tripSchema.pre('save', async function(next) {
 });
 
 // Index for better query performance
-tripSchema.index({ tripId: 1 });
+// tripSchema.index({ tripId: 1 });
 tripSchema.index({ siteId: 1, status: 1 });
 tripSchema.index({ vendorId: 1 });
 tripSchema.index({ projectManagerId: 1, entryAt: -1 });

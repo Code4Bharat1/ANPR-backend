@@ -10,32 +10,27 @@
     toggleClient,
     getClientDashboard,
     createProjectManager,
-    createSite,
-    getDevices,
-    getReports,
-    createSupervisor,
-    getSupervisors,
-    getSites,
+    
     getMyProfile,
     createusers,
     listUsers,
-    exportReports,
+   
     getSettings,
     updateSettings,
     updateMyProfile,
-    deleteSite,
-    updateSite,
     getProjectManagers,
     togglePMStatus,
     toggleSupervisorStatus,
     updateProjectManager,
-    updateSupervisor
 
   } from "../controllers/client.controller.js";
-  import { checkUserLimit } from "../middlewares/checkUserLimit.middleware.js";
-
-  const router = express.Router();
-
+import { checkUserLimit } from "../middlewares/checkUserLimit.middleware.js";
+import { createClientSite,  deleteClientSite,   getSitesByClient, updateClientSite,  } from "../controllers/site.controller.js";
+import { createSupervisor, getSupervisors, updateSupervisor } from "../controllers/supervisor.controller.js";
+import { getDevices } from "../controllers/device.controller.js";
+// In client.routes.js
+import { summary, siteWise, exportReportsToExcel, getReports, getTripReports, getReportStats } from "../controllers/report.controller.js";
+const router = express.Router();
   /**
    * @route   POST /api/clients
    * @desc    Create new client
@@ -147,21 +142,21 @@
     "/sites",
     verifyAccessToken,
     authorizeRoles("client", "admin"),
-    createSite
+    createClientSite
   );
 
   router.get(
     "/sites",
     verifyAccessToken,
     authorizeRoles("client", "admin",),
-    getSites
+    getSitesByClient
   );
   // ✅ UPDATE SITE
   router.put(
     "/sites/:id",
     verifyAccessToken,
     authorizeRoles("client", "admin"),
-    updateSite
+    updateClientSite
   );
 
   // ✅ DELETE SITE
@@ -169,7 +164,7 @@
     "/sites/:id",
     verifyAccessToken,
     authorizeRoles("client", "admin"),
-    deleteSite
+    deleteClientSite
   );
 
   router.get("/devices", 
@@ -178,20 +173,39 @@
     getDevices);
 
 
-  router.get(
-    "/reports", 
-    verifyAccessToken,
-    authorizeRoles("client", "admin"),
-    getReports
-  );
+ // Reports routes
+router.get(
+  "/reports", 
+  verifyAccessToken,
+  authorizeRoles("client", "admin"),
+  getReports
+);
 
-  router.get(
-    "/reports/export", 
-    verifyAccessToken,
-    authorizeRoles("client", "admin"),
-    exportReports
-  );
+router.get(
+  "/reports/export", 
+  verifyAccessToken,
+  authorizeRoles("client", "admin"),
+  exportReportsToExcel // Changed from exportReports
+);
 
+// Trip reports routes
+router.get(
+  "/trips/reports",
+  verifyAccessToken,
+  authorizeRoles("client", "admin", "project_manager"),
+  getTripReports
+);
+
+router.get(
+  "/trips/stats",
+  verifyAccessToken,
+  authorizeRoles("client", "admin", "project_manager"),
+  getReportStats
+);
+
+// Dashboard routes
+router.get("/summary", verifyAccessToken, authorizeRoles("client", "admin"), summary);
+router.get("/site-wise", verifyAccessToken, authorizeRoles("client", "admin"), siteWise);
   /**
    * GET MY PROFILE
    * /api/clients-admin/profile

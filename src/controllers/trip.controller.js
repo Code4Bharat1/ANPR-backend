@@ -1,5 +1,9 @@
 // controllers/trip.controller.js
 import Trip from "../models/Trip.model.js";
+import Vehicle from "../models/Vehicle.model.js";
+import Site from "../models/Site.model.js";
+import { Parser } from "json2csv";
+import ExcelJS from "exceljs";
 import mongoose from "mongoose";
 
 /**
@@ -9,51 +13,80 @@ import mongoose from "mongoose";
  */
 export const getTripHistory = async (req, res) => {
   try {
-    const { period } = req.query;
-    const siteId = req.user?.siteId;
-    
+    const { period, status, vehicleNumber, vendorId, startDate, endDate } = req.query;
+    const siteId = req.user?.siteId || req.query.siteId;
+    const clientId = req.user?.clientId;
+
     console.log('🚗 Get trip history request:', {
       siteId,
       period,
       userId: req.user?._id,
-      userRole: req.user?.role
+      userRole: req.user?.role,
+      filters: { status, vehicleNumber, vendorId, startDate, endDate }
     });
-    
-    if (!siteId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Site ID not found. Please contact administrator.' 
+
+    if (!siteId && !clientId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Site ID or Client ID is required.'
       });
     }
 
-    // Calculate date range based on period
-    let startDate = new Date();
+    // Build query
+    const query = {};
+
+    if (siteId) {
+      query.siteId = new mongoose.Types.ObjectId(siteId);
+    } else if (clientId) {
+      query.clientId = new mongoose.Types.ObjectId(clientId);
+    }
+
+    // Apply filters
+    if (status) query.status = status;
+    if (vehicleNumber) query.$or = [
+      { plateText: { $regex: vehicleNumber, $options: 'i' } },
+      { 'vehicleId.vehicleNumber': { $regex: vehicleNumber, $options: 'i' } }
+    ];
+    if (vendorId) query.vendorId = new mongoose.Types.ObjectId(vendorId);
+
+    // Date range filtering
+    let dateFilter = {};
     if (period === 'today') {
-      startDate.setHours(0, 0, 0, 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      dateFilter.entryAt = { $gte: today };
     } else if (period === 'last7days') {
+      const startDate = new Date();
       startDate.setDate(startDate.getDate() - 7);
+      dateFilter.entryAt = { $gte: startDate };
+    } else if (period === 'last30days') {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+      dateFilter.entryAt = { $gte: startDate };
+    } else if (startDate && endDate) {
+      dateFilter.entryAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
     } else {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid period parameter. Use "today" or "last7days".' 
-      });
+      // Default to last 7 days
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 7);
+      dateFilter.entryAt = { $gte: startDate };
     }
 
-    console.log('🔍 Querying trips:', {
-      siteId,
-      startDate,
-      period
-    });
+    Object.assign(query, dateFilter);
+
+    console.log('🔍 Querying trips with:', query);
 
     // Query trips with proper population
-    const trips = await Trip.find({
-      siteId: new mongoose.Types.ObjectId(siteId),
-      createdAt: { $gte: startDate }
-    })
-    .populate('vendorId', 'name companyName')
-    .populate('vehicleId', 'vehicleNumber plateNumber driverName vehicleType')
-    .sort({ createdAt: -1 })
-    .lean();
+    const trips = await Trip.find(query)
+      .populate('vendorId', 'name companyName')
+      .populate('vehicleId', 'vehicleNumber plateNumber driverName vehicleType')
+      .populate('siteId', 'name address')
+      .populate('supervisorId', 'name email')
+      .sort({ entryAt: -1 })
+      .lean();
 
     console.log('📊 Raw trips from DB:', {
       count: trips.length,
@@ -69,15 +102,14 @@ export const getTripHistory = async (req, res) => {
     // Helper function to safely format dates
     const formatDate = (dateValue) => {
       if (!dateValue) return null;
-      
+
       try {
         const date = new Date(dateValue);
-        // Check if date is valid
         if (isNaN(date.getTime())) {
           console.error('Invalid date value:', dateValue);
           return 'Invalid Date';
         }
-        
+
         return date.toLocaleString('en-IN', {
           day: '2-digit',
           month: 'short',
@@ -96,18 +128,18 @@ export const getTripHistory = async (req, res) => {
     // Helper function to calculate duration
     const calculateDuration = (entryTime, exitTime) => {
       if (!entryTime || !exitTime) return null;
-      
+
       try {
         const entry = new Date(entryTime);
         const exit = new Date(exitTime);
-        
+
         if (isNaN(entry.getTime()) || isNaN(exit.getTime())) {
           return null;
         }
-        
+
         const diff = exit - entry;
         if (diff < 0) return '0h 0m';
-        
+
         const hours = Math.floor(diff / (1000 * 60 * 60));
         const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
         return `${hours}h ${minutes}m`;
@@ -120,27 +152,27 @@ export const getTripHistory = async (req, res) => {
     // Format trips for frontend
     const formattedTrips = trips.map(trip => {
       // Get vehicle number from multiple possible sources
-      const vehicleNumber = 
-        trip.vehicleId?.vehicleNumber || 
-        trip.vehicleId?.plateNumber || 
-        trip.plateText || 
+      const vehicleNumber =
+        trip.vehicleId?.vehicleNumber ||
+        trip.vehicleId?.plateNumber ||
+        trip.plateText ||
         'N/A';
-      
+
       // Get vendor name from multiple possible sources
-      const vendorName = 
-        trip.vendorId?.name || 
-        trip.vendorId?.companyName || 
+      const vendorName =
+        trip.vendorId?.name ||
+        trip.vendorId?.companyName ||
         'N/A';
-      
+
       // Format entry and exit times
       const entryTime = formatDate(trip.entryAt);
       const exitTime = trip.exitAt ? formatDate(trip.exitAt) : null;
-      
+
       // Calculate duration
-      const duration = trip.exitAt 
-        ? calculateDuration(trip.entryAt, trip.exitAt) 
+      const duration = trip.exitAt
+        ? calculateDuration(trip.entryAt, trip.exitAt)
         : 'Ongoing';
-      
+
       // Determine status
       let status = 'active';
       if (trip.status === 'EXITED' || trip.exitAt) {
@@ -152,7 +184,7 @@ export const getTripHistory = async (req, res) => {
       } else {
         status = trip.status?.toLowerCase() || 'active';
       }
-      
+
       return {
         _id: trip._id,
         tripId: trip.tripId || 'N/A',
@@ -163,11 +195,17 @@ export const getTripHistory = async (req, res) => {
         entryTime: entryTime || 'N/A',
         exitTime: exitTime || '--',
         duration: duration || 'N/A',
-        status
+        status,
+        site: trip.siteId?.name || 'N/A',
+        supervisor: trip.supervisorId?.name || 'N/A',
+        purpose: trip.purpose || '',
+        entryGate: trip.entryGate || 'N/A',
+        exitGate: trip.exitGate || 'N/A',
+        loadStatus: trip.loadStatus || 'N/A'
       };
     });
 
-    console.log('✅ Trip history formatted:', { 
+    console.log('✅ Trip history formatted:', {
       count: formattedTrips.length,
       sample: formattedTrips[0]
     });
@@ -182,8 +220,8 @@ export const getTripHistory = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error fetching trip history:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Failed to fetch trip history',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
@@ -199,42 +237,40 @@ export const getActiveTrips = async (req, res) => {
   try {
     // Get siteId from query parameter OR authenticated user
     const siteId = req.query.siteId || req.user?.siteId;
+    const clientId = req.user?.clientId;
 
     console.log('🚗 Get active vehicles request:', {
       siteId,
       fromQuery: req.query.siteId,
       fromUser: req.user?.siteId,
-      query: req.query,
+      clientId,
       hasAuth: !!req.user
     });
 
-    if (!siteId) {
-      console.error('❌ Missing siteId in both query and user session');
+    if (!siteId && !clientId) {
       return res.status(400).json({
         success: false,
-        message: "Site ID is required. Either pass as ?siteId=... or ensure user is assigned to a site.",
-        debug: {
-          querySiteId: req.query.siteId,
-          userSiteId: req.user?.siteId,
-          userId: req.user?._id,
-          hint: "Add ?siteId=YOUR_SITE_ID to the request URL"
-        }
+        message: "Site ID or Client ID is required.",
       });
     }
 
     const OVERSTAY_MINUTES = 240; // 4 hours
 
-    console.log('🔍 Querying active trips with:', {
-      siteId,
-      status: ["INSIDE", "active"]
-    });
+    // Build query
+    const query = {};
+    if (siteId) {
+      query.siteId = new mongoose.Types.ObjectId(siteId);
+    } else if (clientId) {
+      query.clientId = new mongoose.Types.ObjectId(clientId);
+    }
+    query.status = { $in: ["INSIDE", "active"] };
 
-    const trips = await Trip.find({
-      siteId: new mongoose.Types.ObjectId(siteId),
-      status: { $in: ["INSIDE", "active"] },
-    })
+    console.log('🔍 Querying active trips with:', query);
+
+    const trips = await Trip.find(query)
       .populate("vendorId", "name companyName")
       .populate("vehicleId", "vehicleNumber plateNumber vehicleType driverName driverPhone")
+      .populate("siteId", "name")
       .sort({ entryAt: -1 })
       .lean();
 
@@ -248,7 +284,7 @@ export const getActiveTrips = async (req, res) => {
     const formatted = trips.map((t) => {
       const entryTime = new Date(t.entryAt);
       const durationMinutes = Math.floor((now - entryTime.getTime()) / (1000 * 60));
-      
+
       // Format times for IST
       const entryTimeIST = entryTime.toLocaleString('en-IN', {
         timeZone: 'Asia/Kolkata',
@@ -268,20 +304,22 @@ export const getActiveTrips = async (req, res) => {
         vendor: t.vendorId?.name || t.vendorId?.companyName || "Unknown",
         driver: t.vehicleId?.driverName || "N/A",
         driverPhone: t.vehicleId?.driverPhone || "N/A",
-        
+        site: t.siteId?.name || "N/A",
+
         // Time fields
         entryTimeUTC: entryTime.toISOString(),
         entryTimeIST,
-        
+
         // Duration
         duration: `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}m`,
         durationMinutes,
-        
+
         // Status and other fields
         status: durationMinutes > OVERSTAY_MINUTES ? "overstay" : "loading",
         loadStatus: t.loadStatus || "FULL",
         purpose: t.purpose || "N/A",
         entryGate: t.entryGate || "N/A",
+        notes: t.notes || ""
       };
     });
 
@@ -293,7 +331,8 @@ export const getActiveTrips = async (req, res) => {
     res.json({
       success: true,
       count: formatted.length,
-      siteId,
+      siteId: siteId || null,
+      clientId: clientId || null,
       data: formatted,
     });
   } catch (err) {
@@ -302,6 +341,534 @@ export const getActiveTrips = async (req, res) => {
       success: false,
       message: "Failed to fetch active vehicles",
       error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+
+/**
+ * @desc   Get single trip by ID
+ * @route  GET /api/trips/:id
+ * @access Supervisor, PM, Admin, Client
+ */
+export const getTripById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid trip ID"
+      });
+    }
+
+    const trip = await Trip.findById(id)
+      .populate('vendorId', 'name companyName phone email')
+      .populate('vehicleId', 'vehicleNumber plateNumber vehicleType driverName driverPhone')
+      .populate('siteId', 'name address')
+      .populate('supervisorId', 'name email')
+      .populate('projectManagerId', 'name email')
+      .lean();
+
+    if (!trip) {
+      return res.status(404).json({
+        success: false,
+        message: "Trip not found"
+      });
+    }
+
+    // Check authorization
+    const userSiteId = req.user?.siteId?.toString();
+    const userClientId = req.user?.clientId?.toString();
+    const tripSiteId = trip.siteId?._id?.toString();
+    const tripClientId = trip.clientId?.toString();
+
+    if (req.user?.role !== 'admin') {
+      if (userSiteId && tripSiteId && userSiteId !== tripSiteId) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied"
+        });
+      }
+      if (userClientId && tripClientId && userClientId !== tripClientId) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied"
+        });
+      }
+    }
+
+    // Format trip data
+    const formattedTrip = {
+      _id: trip._id,
+      tripId: trip.tripId || 'N/A',
+      vehicleNumber: trip.vehicleId?.vehicleNumber || trip.plateText || 'N/A',
+      vehicleType: trip.vehicleId?.vehicleType || 'N/A',
+      driverName: trip.vehicleId?.driverName || 'N/A',
+      driverPhone: trip.vehicleId?.driverPhone || 'N/A',
+      vendor: trip.vendorId?.name || trip.vendorId?.companyName || 'N/A',
+      site: trip.siteId?.name || 'N/A',
+      supervisor: trip.supervisorId?.name || 'N/A',
+      projectManager: trip.projectManagerId?.name || 'N/A',
+      entryTime: trip.entryAt ? new Date(trip.entryAt).toLocaleString('en-IN') : 'N/A',
+      exitTime: trip.exitAt ? new Date(trip.exitAt).toLocaleString('en-IN') : '--',
+      status: trip.status,
+      purpose: trip.purpose || 'N/A',
+      loadStatus: trip.loadStatus || 'N/A',
+      entryGate: trip.entryGate || 'N/A',
+      exitGate: trip.exitGate || 'N/A',
+      notes: trip.notes || '',
+      entryMedia: trip.entryMedia || {},
+      exitMedia: trip.exitMedia || {}
+    };
+
+    res.json({
+      success: true,
+      data: formattedTrip
+    });
+  } catch (error) {
+    console.error('❌ Error fetching trip by ID:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch trip details",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * @desc   Update trip status or details
+ * @route  PUT /api/trips/:id
+ * @access Supervisor, PM, Admin
+ */
+export const updateTrip = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid trip ID"
+      });
+    }
+
+    const trip = await Trip.findById(id);
+    if (!trip) {
+      return res.status(404).json({
+        success: false,
+        message: "Trip not found"
+      });
+    }
+
+    // Check authorization
+    const userSiteId = req.user?.siteId?.toString();
+    const tripSiteId = trip.siteId?.toString();
+
+    if (req.user?.role !== 'admin') {
+      if (userSiteId && tripSiteId && userSiteId !== tripSiteId) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied"
+        });
+      }
+    }
+
+    // Allowed updates
+    const allowedUpdates = [
+      'status', 'purpose', 'loadStatus', 'notes', 
+      'exitAt', 'exitGate', 'exitMedia', 'entryMedia'
+    ];
+
+    const updateData = {};
+    allowedUpdates.forEach(field => {
+      if (updates[field] !== undefined) {
+        updateData[field] = updates[field];
+      }
+    });
+
+    // If marking as exited, update vehicle status
+    if (updates.status === 'EXITED' && !trip.exitAt) {
+      updateData.exitAt = updates.exitAt || new Date();
+      
+      // Update vehicle status
+      await Vehicle.findByIdAndUpdate(trip.vehicleId, {
+        isInside: false,
+        lastExitAt: updateData.exitAt
+      });
+    }
+
+    const updatedTrip = await Trip.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    )
+      .populate('vendorId', 'name')
+      .populate('vehicleId', 'vehicleNumber')
+      .lean();
+
+    res.json({
+      success: true,
+      message: "Trip updated successfully",
+      data: updatedTrip
+    });
+  } catch (error) {
+    console.error('❌ Error updating trip:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update trip",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * @desc   Create manual trip entry
+ * @route  POST /api/trips/manual
+ * @access Supervisor, PM, Admin
+ */
+export const createManualTrip = async (req, res) => {
+  try {
+    const supervisorId = req.user._id;
+    const { siteId, clientId } = req.user;
+
+    if (!siteId || !clientId) {
+      return res.status(400).json({
+        success: false,
+        message: "User not properly configured (missing siteId or clientId)",
+      });
+    }
+
+    const {
+      vehicleNumber,
+      vehicleType,
+      driverName,
+      driverPhone,
+      vendorId,
+      entryTime,
+      purpose,
+      loadStatus,
+      entryGate,
+      notes,
+      media,
+    } = req.body;
+
+    if (!vehicleNumber || !vendorId) {
+      return res.status(400).json({
+        success: false,
+        message: "vehicleNumber and vendorId are required",
+      });
+    }
+
+    // Find or create vehicle
+    let vehicle = await Vehicle.findOne({
+      vehicleNumber: vehicleNumber.toUpperCase(),
+      siteId,
+    });
+
+    if (vehicle?.isInside) {
+      return res.status(409).json({
+        success: false,
+        message: "Vehicle is already inside the site",
+      });
+    }
+
+    if (!vehicle) {
+      vehicle = await Vehicle.create({
+        vehicleNumber: vehicleNumber.toUpperCase(),
+        vehicleType: vehicleType || "TRUCK",
+        driverName: driverName || "",
+        driverPhone: driverPhone || "",
+        vendorId,
+        siteId,
+        clientId,
+        isInside: true,
+        lastEntryAt: entryTime ? new Date(entryTime) : new Date(),
+        createdBy: supervisorId,
+      });
+    } else {
+      vehicle.driverName = driverName || vehicle.driverName;
+      vehicle.driverPhone = driverPhone || vehicle.driverPhone;
+      vehicle.vehicleType = vehicleType || vehicle.vehicleType;
+      vehicle.vendorId = vendorId;
+      vehicle.isInside = true;
+      vehicle.lastEntryAt = entryTime ? new Date(entryTime) : new Date();
+      await vehicle.save();
+    }
+
+    // Get site details
+    const site = await Site.findById(siteId);
+
+    // Create trip
+    const trip = await Trip.create({
+      clientId,
+      siteId,
+      vehicleId: vehicle._id,
+      vendorId,
+      supervisorId: supervisorId,
+      projectManagerId: site?.projectManagerId || clientId,
+      plateText: vehicleNumber.toUpperCase(),
+      driverName: driverName || "",
+      entryAt: entryTime ? new Date(entryTime) : new Date(),
+      entryGate: entryGate || "Manual Entry",
+      status: "INSIDE",
+      purpose: purpose || "Manual Entry",
+      loadStatus: loadStatus || "FULL",
+      entryMedia: {
+        anprImage: media?.anprImage || "",
+        photos: media?.photos || [],
+        video: media?.video || "",
+        challanImage: media?.challanImage || "",
+      },
+      notes: notes || "",
+      createdBy: supervisorId,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Manual trip entry created successfully",
+      data: {
+        tripId: trip.tripId,
+        vehicleId: vehicle._id,
+        entryAt: trip.entryAt,
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error creating manual trip:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to create manual trip entry",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * @desc   Export trip history
+ * @route  GET /api/trips/export
+ * @access Supervisor, PM, Admin, Client
+ */
+export const exportTripHistory = async (req, res) => {
+  try {
+    const siteId = req.user?.siteId || req.query.siteId;
+    const clientId = req.user?.clientId;
+    const { period = "last7days", format = "csv" } = req.query;
+
+    if (!siteId && !clientId) {
+      return res.status(400).json({
+        success: false,
+        message: "Site ID or Client ID is required",
+      });
+    }
+
+    // Date filter
+    const now = new Date();
+    let startDate = null;
+
+    switch (period) {
+      case "today":
+        startDate = new Date();
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "last7days":
+        startDate = new Date(now.setDate(now.getDate() - 7));
+        break;
+      case "last30days":
+        startDate = new Date(now.setDate(now.getDate() - 30));
+        break;
+      case "thismonth":
+        startDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        break;
+    }
+
+    const query = {};
+    if (siteId) {
+      query.siteId = new mongoose.Types.ObjectId(siteId);
+    } else if (clientId) {
+      query.clientId = new mongoose.Types.ObjectId(clientId);
+    }
+    
+    if (startDate) {
+      query.entryAt = { $gte: startDate };
+    }
+
+    // Fetch trips
+    const trips = await Trip.find(query)
+      .populate("vendorId", "name companyName")
+      .populate("vehicleId", "vehicleNumber vehicleType")
+      .populate("siteId", "name")
+      .sort({ entryAt: -1 })
+      .lean();
+
+    const rows = trips.map((t) => {
+      let duration = "--";
+      if (t.exitAt) {
+        const diff = new Date(t.exitAt) - new Date(t.entryAt);
+        const h = Math.floor(diff / (1000 * 60 * 60));
+        const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        duration = `${h}h ${m}m`;
+      }
+
+      return {
+        Trip_ID: t.tripId || "N/A",
+        Vehicle_Number: t.vehicleId?.vehicleNumber || t.plateText || "Unknown",
+        Vehicle_Type: t.vehicleId?.vehicleType || "Unknown",
+        Vendor: t.vendorId?.name || t.vendorId?.companyName || "Unknown",
+        Site: t.siteId?.name || "Unknown",
+        Entry_Time: t.entryAt ? new Date(t.entryAt).toLocaleString('en-IN') : "N/A",
+        Exit_Time: t.exitAt ? new Date(t.exitAt).toLocaleString('en-IN') : "--",
+        Duration: duration,
+        Status: t.status,
+        Purpose: t.purpose || "",
+        Load_Status: t.loadStatus || "FULL",
+        Entry_Gate: t.entryGate || "N/A",
+        Exit_Gate: t.exitGate || "N/A",
+      };
+    });
+
+    // CSV Export
+    if (format === "csv") {
+      const parser = new Parser();
+      const csv = parser.parse(rows);
+
+      res.header("Content-Type", "text/csv");
+      res.attachment(`trip-history-${Date.now()}.csv`);
+      return res.send(csv);
+    }
+
+    // Excel Export
+    if (format === "excel") {
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet("Trip History");
+
+      if (rows.length > 0) {
+        sheet.columns = Object.keys(rows[0]).map((key) => ({
+          header: key.replace(/_/g, " "),
+          key,
+          width: 25,
+        }));
+
+        rows.forEach((row) => sheet.addRow(row));
+      }
+
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=trip-history-${Date.now()}.xlsx`
+      );
+
+      await workbook.xlsx.write(res);
+      res.end();
+      return;
+    }
+
+    res.status(400).json({
+      success: false,
+      message: "Invalid export format. Use 'csv' or 'excel'."
+    });
+  } catch (error) {
+    console.error('❌ Error exporting trip history:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to export trip history",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * @desc   Get trip statistics
+ * @route  GET /api/trips/stats
+ * @access Supervisor, PM, Admin, Client
+ */
+export const getTripStats = async (req, res) => {
+  try {
+    const siteId = req.user?.siteId || req.query.siteId;
+    const clientId = req.user?.clientId;
+    const { period = "today" } = req.query;
+
+    if (!siteId && !clientId) {
+      return res.status(400).json({
+        success: false,
+        message: "Site ID or Client ID is required",
+      });
+    }
+
+    // Date range
+    const now = new Date();
+    let startDate = new Date();
+
+    switch (period) {
+      case "today":
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "yesterday":
+        startDate.setDate(startDate.getDate() - 1);
+        startDate.setHours(0, 0, 0, 0);
+        const yesterdayEnd = new Date(startDate);
+        yesterdayEnd.setDate(yesterdayEnd.getDate() + 1);
+        break;
+      case "last7days":
+        startDate.setDate(startDate.getDate() - 7);
+        break;
+      case "last30days":
+        startDate.setDate(startDate.getDate() - 30);
+        break;
+    }
+
+    const query = {};
+    if (siteId) {
+      query.siteId = new mongoose.Types.ObjectId(siteId);
+    } else if (clientId) {
+      query.clientId = new mongoose.Types.ObjectId(clientId);
+    }
+    query.entryAt = { $gte: startDate };
+
+    const [
+      totalTrips,
+      activeTrips,
+      completedTrips,
+      deniedTrips,
+      avgDuration
+    ] = await Promise.all([
+      Trip.countDocuments(query),
+      Trip.countDocuments({ ...query, status: "INSIDE" }),
+      Trip.countDocuments({ ...query, status: "EXITED" }),
+      Trip.countDocuments({ ...query, status: "DENIED" }),
+      Trip.aggregate([
+        { $match: { ...query, status: "EXITED", exitAt: { $ne: null } } },
+        {
+          $group: {
+            _id: null,
+            avgDuration: { $avg: { $subtract: ["$exitAt", "$entryAt"] } }
+          }
+        }
+      ])
+    ]);
+
+    const avgDurationMinutes = avgDuration[0]?.avgDuration
+      ? Math.round(avgDuration[0].avgDuration / (1000 * 60))
+      : 0;
+
+    res.json({
+      success: true,
+      data: {
+        totalTrips,
+        activeTrips,
+        completedTrips,
+        deniedTrips,
+        avgDuration: `${Math.floor(avgDurationMinutes / 60)}h ${avgDurationMinutes % 60}m`,
+        period
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error fetching trip stats:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch trip statistics",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
