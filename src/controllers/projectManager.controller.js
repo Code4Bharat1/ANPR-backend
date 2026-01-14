@@ -544,13 +544,48 @@ export const getLiveVehicles = async (req, res) => {
 
 
 // GET TRIP REPORTS
+// GET TRIP REPORTS
 export const getTripReports = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
+    
+    console.log('👤 User ID:', req.user.id);
+    console.log('👤 User role:', req.user.role);
 
-    const filter = { projectManagerId: req.user.id };
+    // 1. Get the project manager and their assigned sites
+    let projectManager;
+    let assignedSites = [];
+    
+    if (req.user.role === 'project_manager') {
+      // Find project manager by user ID
+      projectManager = await ProjectManager.findOne({ user: req.user.id })
+        .populate('assignedSites', '_id name siteId');
+      
+      console.log('🏢 Project Manager found:', projectManager?._id);
+      console.log('🏢 PM name:', projectManager?.name);
+      
+      if (projectManager) {
+        assignedSites = projectManager.assignedSites || [];
+      }
+    }
+    
+    // Get site IDs from assigned sites
+    const siteIds = assignedSites.map(site => site._id);
+    
+    console.log('📍 Assigned Sites:', siteIds.length);
+    console.log('📍 Site IDs:', siteIds);
 
-    // Date range filter
+    // 2. Build filter based on sites
+    const filter = {};
+    
+    if (siteIds.length > 0) {
+      filter.siteId = { $in: siteIds };
+    } else {
+      // If no sites assigned, return empty array
+      return res.json([]);
+    }
+
+    // 3. Date range filter
     if (startDate && endDate) {
       filter.entryAt = {
         $gte: new Date(startDate),
@@ -558,27 +593,104 @@ export const getTripReports = async (req, res) => {
       };
     }
 
+    console.log('🔍 Filter being used:', JSON.stringify(filter, null, 2));
+
+    // 4. Get trips
     const reports = await Trip.find(filter)
       .populate('vehicleId', 'vehicleNumber')
       .populate('vendorId', 'name email phone')
-      .populate('siteId', 'name location')
+      .populate('siteId', 'name location siteId')
       .populate('supervisorId', 'name email')
       .populate('clientId', 'name')
+      .populate('projectManagerId', 'name email')
       .sort({ entryAt: -1 });
 
-    res.json(reports);
+    console.log(`📊 Found ${reports.length} trips for user ${req.user.id}`);
+
+    // 5. Format response
+    const formattedReports = reports.map(trip => ({
+      _id: trip._id,
+      tripId: trip.tripId,
+      vehicleNumber: trip.plateText || trip.vehicleId?.vehicleNumber || 'N/A',
+      vehicleId: trip.vehicleId,
+      vendor: trip.vendorId?.name || 'N/A',
+      vendorId: trip.vendorId,
+      client: trip.clientId?.name || 'N/A',
+      clientId: trip.clientId,
+      site: trip.siteId?.name || 'N/A',
+      siteId: trip.siteId?._id,
+      siteLocation: trip.siteId?.location,
+      supervisor: trip.supervisorId?.name || 'N/A',
+      supervisorId: trip.supervisorId,
+      projectManager: trip.projectManagerId?.name || 'N/A',
+      projectManagerId: trip.projectManagerId,
+      loadStatus: trip.loadStatus,
+      entryTime: trip.entryAt,
+      exitTime: trip.exitAt,
+      entryGate: trip.entryGate,
+      exitGate: trip.exitGate,
+      status: trip.status,
+      notes: trip.notes,
+      createdAt: trip.createdAt,
+      // Calculate duration
+      duration: trip.exitAt && trip.entryAt ? 
+        (() => {
+          const diff = new Date(trip.exitAt) - new Date(trip.entryAt);
+          const hours = Math.floor(diff / (1000 * 60 * 60));
+          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          return `${hours}h ${minutes}m`;
+        })() : '--'
+    }));
+
+    res.json(formattedReports);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error fetching trip reports", error: err.message });
+    console.error('❌ Error in getTripReports:', err);
+    res.status(500).json({ 
+      message: "Error fetching trip reports", 
+      error: err.message 
+    });
   }
 };
-
+// EXPORT REPORTS TO EXCEL
+// EXPORT REPORTS TO EXCEL
 // EXPORT REPORTS TO EXCEL
 export const exportReportsToExcel = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
+    
+    console.log('📤 Export request from user:', req.user.id);
 
-    const filter = { projectManagerId: req.user.id };
+    // 1. Get project manager and assigned sites
+    let projectManager;
+    let assignedSites = [];
+    
+    if (req.user.role === 'project_manager') {
+      projectManager = await ProjectManager.findOne({ user: req.user.id })
+        .populate('assignedSites', '_id name');
+      
+      if (projectManager) {
+        assignedSites = projectManager.assignedSites || [];
+      }
+    }
+    
+    const siteIds = assignedSites.map(site => site._id);
+    
+    // Build filter
+    const filter = {};
+    
+    if (siteIds.length > 0) {
+      filter.siteId = { $in: siteIds };
+    } else {
+      // If no sites, return empty Excel
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet([{ 'Message': 'No trips found for your assigned sites' }]);
+      XLSX.utils.book_append_sheet(wb, ws, 'Trip Reports');
+      const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      
+      res.setHeader('Content-Disposition', `attachment; filename=trip_reports_${Date.now()}.xlsx`);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      return res.send(buffer);
+    }
 
     if (startDate && endDate) {
       filter.entryAt = {
@@ -586,6 +698,8 @@ export const exportReportsToExcel = async (req, res) => {
         $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999))
       };
     }
+
+    console.log('📤 Export filter:', filter);
 
     const reports = await Trip.find(filter)
       .populate('vehicleId', 'vehicleNumber')
@@ -593,7 +707,10 @@ export const exportReportsToExcel = async (req, res) => {
       .populate('siteId', 'name location')
       .populate('supervisorId', 'name')
       .populate('clientId', 'name')
+      .populate('projectManagerId', 'name email')
       .sort({ entryAt: -1 });
+
+    console.log(`📤 Exporting ${reports.length} trips`);
 
     // Calculate duration helper
     const calculateDuration = (entryAt, exitAt) => {
@@ -606,23 +723,39 @@ export const exportReportsToExcel = async (req, res) => {
 
     // Format data for Excel
     const excelData = reports.map(report => ({
-      'Trip ID': report.tripId,
+      'Trip ID': report.tripId || 'N/A',
       'Vehicle': report.plateText || report.vehicleId?.vehicleNumber || 'N/A',
       'Vendor': report.vendorId?.name || 'N/A',
       'Client': report.clientId?.name || 'N/A',
       'Site': report.siteId?.name || 'N/A',
+      'Location': report.siteId?.location || 'N/A',
+      'Project Manager': report.projectManagerId?.name || 'N/A',
+      'Supervisor': report.supervisorId?.name || 'N/A',
       'Load Status': report.loadStatus || 'N/A',
       'Entry Time': report.entryAt ? new Date(report.entryAt).toLocaleString() : '-',
       'Exit Time': report.exitAt ? new Date(report.exitAt).toLocaleString() : '-',
       'Duration': calculateDuration(report.entryAt, report.exitAt),
       'Entry Gate': report.entryGate || '-',
       'Exit Gate': report.exitGate || '-',
-      'Status': report.status === 'INSIDE' || report.status === 'active' ? 'Active' :
-        report.status === 'EXITED' || report.status === 'completed' ? 'Completed' :
-          report.status,
-      'Supervisor': report.supervisorId?.name || 'N/A',
+      'Status': getStatusDisplay(report.status),
       'Notes': report.notes || '-'
     }));
+
+    // Helper function for status display
+    function getStatusDisplay(status) {
+      switch(status) {
+        case 'INSIDE':
+        case 'active':
+          return 'Active';
+        case 'EXITED':
+        case 'completed':
+          return 'Completed';
+        case 'cancelled':
+          return 'Cancelled';
+        default:
+          return status || 'N/A';
+      }
+    }
 
     // Create workbook and worksheet
     const wb = XLSX.utils.book_new();
@@ -635,6 +768,9 @@ export const exportReportsToExcel = async (req, res) => {
       { wch: 20 }, // Vendor
       { wch: 20 }, // Client
       { wch: 25 }, // Site
+      { wch: 20 }, // Location
+      { wch: 20 }, // Project Manager
+      { wch: 18 }, // Supervisor
       { wch: 12 }, // Load Status
       { wch: 20 }, // Entry Time
       { wch: 20 }, // Exit Time
@@ -642,7 +778,6 @@ export const exportReportsToExcel = async (req, res) => {
       { wch: 12 }, // Entry Gate
       { wch: 12 }, // Exit Gate
       { wch: 12 }, // Status
-      { wch: 18 }, // Supervisor
       { wch: 30 }  // Notes
     ];
 
@@ -658,46 +793,104 @@ export const exportReportsToExcel = async (req, res) => {
 
     res.send(buffer);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error exporting reports", error: err.message });
+    console.error('❌ Error in exportReportsToExcel:', err);
+    res.status(500).json({ 
+      message: "Error exporting reports", 
+      error: err.message 
+    });
   }
 };
 
-// GET REPORT STATS (Optional)
+// GET REPORT STATS
+// GET REPORT STATS
 export const getReportStats = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
+    
+    console.log('📊 Stats request from user:', req.user.id);
 
-    const filter = { projectManagerId: req.user.id };
+    // 1. Get project manager and assigned sites
+    let projectManager;
+    let assignedSites = [];
+    
+    if (req.user.role === 'project_manager') {
+      projectManager = await ProjectManager.findOne({ user: req.user.id })
+        .populate('assignedSites', '_id name');
+      
+      if (projectManager) {
+        assignedSites = projectManager.assignedSites || [];
+      }
+    }
+    
+    const siteIds = assignedSites.map(site => site._id);
+    
+    // Build filter
+    const filter = {};
+    
+    if (siteIds.length > 0) {
+      filter.siteId = { $in: siteIds };
+    } else {
+      // If no sites, return zero stats
+      return res.json({
+        totalTrips: 0,
+        completedTrips: 0,
+        activeTrips: 0,
+        averageDurationMinutes: 0
+      });
+    }
 
     if (startDate && endDate) {
-      filter.entryTime = {
+      filter.entryAt = {
         $gte: new Date(startDate),
         $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999))
       };
     }
 
+    console.log('📊 Stats filter:', filter);
+
     const [totalTrips, completedTrips, activeTrips, totalDuration] = await Promise.all([
       Trip.countDocuments(filter),
-      Trip.countDocuments({ ...filter, status: 'completed' }),
-      Trip.countDocuments({ ...filter, status: 'active' }),
+      Trip.countDocuments({ 
+        ...filter, 
+        status: { $in: ["EXITED", "completed"] }
+      }),
+      Trip.countDocuments({ 
+        ...filter, 
+        status: { $in: ["INSIDE", "active"] }
+      }),
       Trip.aggregate([
-        { $match: { ...filter, status: 'completed', exitTime: { $exists: true } } },
+        { 
+          $match: { 
+            ...filter, 
+            status: { $in: ["EXITED", "completed"] }, 
+            exitAt: { $exists: true, $ne: null },
+            entryAt: { $exists: true, $ne: null }
+          } 
+        },
         {
           $project: {
-            duration: { $subtract: ['$exitTime', '$entryTime'] }
+            duration: { 
+              $subtract: ["$exitAt", "$entryAt"] 
+            }
           }
         },
         {
           $group: {
             _id: null,
-            totalDuration: { $sum: '$duration' }
+            totalDuration: { $sum: "$duration" }
           }
         }
       ])
     ]);
 
-    const avgDuration = totalDuration.length > 0
+    console.log('📊 Stats Results:', {
+      totalTrips,
+      completedTrips,
+      activeTrips,
+      totalDuration: totalDuration[0]?.totalDuration || 0
+    });
+
+    const avgDuration = totalDuration.length > 0 && completedTrips > 0
       ? Math.floor(totalDuration[0].totalDuration / completedTrips / (1000 * 60))
       : 0;
 
@@ -708,11 +901,13 @@ export const getReportStats = async (req, res) => {
       averageDurationMinutes: avgDuration
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error fetching report stats", error: err.message });
+    console.error('❌ Error in getReportStats:', err);
+    res.status(500).json({ 
+      message: "Error fetching report stats", 
+      error: err.message 
+    });
   }
 };
-
 // Vendor routes
 // CREATE VENDOR
 export const createVendor = async (req, res) => {
