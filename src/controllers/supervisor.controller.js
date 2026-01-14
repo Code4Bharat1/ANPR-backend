@@ -65,6 +65,7 @@ export const getSupervisors = async (req, res, next) => {
       clientId: req.user.clientId,
     })
       .populate("siteId", "name location")
+      .populate("projectManagerId")
       .select("-password")
       .sort({ createdAt: -1 });
 

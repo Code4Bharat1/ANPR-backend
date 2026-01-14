@@ -411,37 +411,47 @@ export const getSiteDetails = async (req, res) => {
 // Supervisor routes
 export const createSupervisor = async (req, res) => {
   try {
-    const { name, email, siteId, password } = req.body;
+    const { name, email, mobile, address, siteId, password } = req.body;
 
-    // 🔐 Validate site belongs to PM
+    // 🔐 Validate site belongs to Project Manager
     const pm = await ProjectManager.findById(req.user.id)
       .select("assignedSites")
       .lean();
 
     if (!pm?.assignedSites?.some(id => id.toString() === siteId)) {
-      return res.status(403).json({ message: "You cannot assign supervisor to this site" });
+      return res.status(403).json({
+        message: "You cannot assign supervisor to this site",
+      });
     }
 
-    const supervisor = new Supervisor({
+    // ✅ Create supervisor
+    const supervisor = await supervisorModel.create({
       name,
       email,
+      mobile,
+      address,
       siteId,
       password,
       projectManagerId: req.user.id,
-      // ✅ only site relation
     });
 
-
+    // Optional populate
     await supervisor.populate("siteId", "name");
 
-    res.status(201).json(supervisor);
+    return res.status(201).json({
+      message: "Supervisor created successfully",
+      data: supervisor,
+    });
+
   } catch (err) {
+    console.error("Create Supervisor Error:", err);
     res.status(500).json({
       message: "Error creating supervisor",
       error: err.message,
     });
   }
 };
+
 
 export const getAllSupervisors = async (req, res) => {
   try {
