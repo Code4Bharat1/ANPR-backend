@@ -30,7 +30,7 @@ export const registerDevice = async (req, res, next) => {
     }
 
     const device = await Device.create({ 
-      type: deviceType,
+      devicetype: deviceType,
       serialNo: serialNumber,
       clientId,
       siteId,
@@ -266,7 +266,7 @@ function formatDeviceResponse(device) {
     _id: device._id,
     name: device.name || `${device.type}-${device.serialNo}`,
     deviceId: device.serialNo,
-    type: device.type,
+    type: device.devicetype,
     status: device.isOnline ? 'online' : 'offline',
     clientId: device.clientId?._id || device.clientId,
     clientName: device.clientId?.companyName || device.clientId?.name,
