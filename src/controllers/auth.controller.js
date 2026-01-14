@@ -48,15 +48,25 @@ export const login = async (req, res, next) => {
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
+
     if (user.isActive === false) {
       return res.status(403).json({
         message: "Your account is deactivated. Please contact SuperAdmin.",
       });
     }
 
-    const isMatch = await comparePassword(password, user.password);
-    if (!isMatch) {
+    /* 🔐 PASSWORD CHECK (HASH + PLAIN FALLBACK) */
+    const matchResult = await comparePassword(password, user.password);
+
+    if (!matchResult) {
       return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    /* 🔁 AUTO-MIGRATION: PLAIN → HASH */
+    if (matchResult === "PLAIN_MATCH") {
+      user.password = await hashPassword(password);
+      await user.save();
+      console.log("🔐 Password auto-migrated for:", user.email || user.mobile);
     }
 
     let clientId = user.clientId || null;
@@ -79,7 +89,6 @@ export const login = async (req, res, next) => {
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
-    // 🔐 Refresh token in cookie
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -101,6 +110,7 @@ export const login = async (req, res, next) => {
     next(err);
   }
 };
+
 
 /* ======================================================
    REFRESH TOKEN
