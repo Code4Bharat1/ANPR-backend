@@ -306,6 +306,20 @@ export const deleteClientSite = async (req, res, next) => {
  */
 export const getMySites = async (req, res) => {
   try {
+    console.log('🔍 getMySites called');
+    console.log('🔍 req.user:', req.user);
+    console.log('🔍 User ID from token:', req.user?.id);
+    
+    // Check if req.user exists
+    if (!req.user || !req.user.id) {
+      console.error('❌ No user found in request');
+      return res.status(401).json({ 
+        message: 'Authentication failed - no user in request',
+        user: req.user 
+      });
+    }
+
+    // Try to find the project manager
     const pm = await ProjectManager.findById(req.user.id)
       .populate({
         path: "assignedSites",
@@ -314,8 +328,14 @@ export const getMySites = async (req, res) => {
       })
       .lean();
 
+    console.log('🔍 Found Project Manager:', pm ? 'Yes' : 'No');
+    
     if (!pm) {
-      return res.status(404).json({ message: "Project manager not found" });
+      console.error('❌ Project manager not found in database with ID:', req.user.id);
+      return res.status(404).json({ 
+        message: "Project manager not found",
+        userId: req.user.id 
+      });
     }
 
     // Transform the data for frontend
@@ -340,16 +360,16 @@ export const getMySites = async (req, res) => {
       createdAt: site.createdAt,
     }));
 
+    console.log('✅ Returning sites:', sites.length);
     res.json(sites);
   } catch (err) {
-    console.error("Error fetching sites:", err);
+    console.error("❌ Error fetching sites:", err);
     res.status(500).json({
       message: "Error fetching sites",
       error: err.message,
     });
   }
 };
-
 /**
  * GET SITE DETAILS - For Project Managers
  */

@@ -4,6 +4,12 @@ import bcrypt from "bcryptjs";
 
 const ProjectManagerSchema = new mongoose.Schema(
   {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: false // Make optional for existing records
+    },
+    
     name: { type: String, required: true },
 
     email: {

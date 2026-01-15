@@ -1,595 +1,4 @@
-// import Trip from "../models/Trip.model.js";
-// import Site from "../models/Site.model.js";
-// import Supervisor from "../models/supervisor.model.js";
-// import ProjectManager from "../models/ProjectManager.model.js";
-// import ExcelJS from "exceljs";
-// import XLSX from "xlsx";
-// import { buildDateFilter } from "../utils/query.util.js";
 
-// export const summary = async (req, res, next) => {
-//   try {
-//     const clientId = req.user.clientId;
-//     const { from, to } = req.query;
-
-//     const dateFilter = buildDateFilter(from, to);
-
-//     const q = { clientId };
-//     if (dateFilter) q.createdAt = dateFilter;
-
-//     const totalTrips = await Trip.countDocuments(q);
-//     const activeTrips = await Trip.countDocuments({ ...q, status: "INSIDE" });
-//     const completedTrips = await Trip.countDocuments({ ...q, status: "EXITED" });
-
-//     const totalSites = await Site.countDocuments({ clientId });
-//     const totalSupervisors = await Supervisor.countDocuments({ clientId });
-
-//     res.json({ totalTrips, activeTrips, completedTrips, totalSites, totalSupervisors });
-//   } catch (e) {
-//     next(e);
-//   }
-// };
-
-// export const siteWise = async (req, res, next) => {
-//   try {
-//     const clientId = req.user.clientId;
-//     const data = await Trip.aggregate([
-//       { $match: { clientId: new (await import("mongoose")).default.Types.ObjectId(clientId) } },
-//       { $group: { _id: "$siteId", trips: { $sum: 1 }, inside: { $sum: { $cond: [{ $eq: ["$status", "INSIDE"] }, 1, 0] } } } },
-//       { $sort: { trips: -1 } },
-//     ]);
-
-//     res.json(data);
-//   } catch (e) {
-//     next(e);
-//   }
-// };
-// /* ======================================================
-//    GET REPORTS WITH FILTERS
-// ====================================================== */
-// export const getReports = async (req, res, next) => {
-//   try {
-//     const { startDate, endDate, status, site } = req.query;
-
-//     // Build query
-//     const query = { clientId: req.user.clientId };
-
-//     // Date filter
-//     if (startDate && endDate) {
-//       query.createdAt = {
-//         $gte: new Date(startDate),
-//         $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999))
-//       };
-//     }
-
-//     // Status filter
-//     if (status && status !== 'All Status') {
-//       query.status = status;
-//     }
-
-//     // Site filter
-//     if (site && site !== 'All Sites') {
-//       query.site = site;
-//     }
-
-//     const trips = await Trip.find(query).sort({ createdAt: -1 });
-
-//     res.json(
-//       trips.map((trip) => ({
-//         id: trip._id,
-//         vehicleNumber: trip.vehicleNumber,
-//         entryTime: trip.entryTime
-//           ? new Date(trip.entryTime).toLocaleString('en-IN', {
-//             day: '2-digit',
-//             month: '2-digit',
-//             year: 'numeric',
-//             hour: '2-digit',
-//             minute: '2-digit',
-//             hour12: true
-//           })
-//           : '-',
-//         exitTime: trip.exitTime
-//           ? new Date(trip.exitTime).toLocaleString('en-IN', {
-//             day: '2-digit',
-//             month: '2-digit',
-//             year: 'numeric',
-//             hour: '2-digit',
-//             minute: '2-digit',
-//             hour12: true
-//           })
-//           : '-',
-//         status: trip.status || 'Active',
-//         site: trip.site || '-'
-//       }))
-//     );
-//   } catch (err) {
-//     console.error('Get reports error:', err);
-//     next(err);
-//   }
-// };
-
-// /* ======================================================
-//    EXPORT REPORTS TO EXCEL
-// ====================================================== */
-// export const exportReports = async (req, res, next) => {
-//   try {
-//     const { startDate, endDate, status, site } = req.query;
-
-//     // Build query
-//     const query = { clientId: req.user.clientId };
-
-//     // Date filter
-//     if (startDate && endDate) {
-//       query.createdAt = {
-//         $gte: new Date(startDate),
-//         $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999))
-//       };
-//     }
-
-//     // Status filter
-//     if (status && status !== 'All Status') {
-//       query.status = status;
-//     }
-
-//     // Site filter
-//     if (site && site !== 'All Sites') {
-//       query.site = site;
-//     }
-
-//     const trips = await Trip.find(query).sort({ createdAt: -1 });
-
-//     // Create Excel workbook
-//     const workbook = new ExcelJS.Workbook();
-//     const worksheet = workbook.addWorksheet('Trips Report');
-
-//     // Define columns
-//     worksheet.columns = [
-//       { header: 'Trip ID', key: 'tripId', width: 25 },
-//       { header: 'Vehicle Number', key: 'vehicleNumber', width: 20 },
-//       { header: 'Entry Time', key: 'entryTime', width: 25 },
-//       { header: 'Exit Time', key: 'exitTime', width: 25 },
-//       { header: 'Status', key: 'status', width: 15 }
-//     ];
-
-//     // Style header row
-//     worksheet.getRow(1).font = { bold: true, size: 12 };
-//     worksheet.getRow(1).fill = {
-//       type: 'pattern',
-//       pattern: 'solid',
-//       fgColor: { argb: 'FF4472C4' }
-//     };
-//     worksheet.getRow(1).font = { ...worksheet.getRow(1).font, color: { argb: 'FFFFFFFF' } };
-//     worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
-
-//     // Add data rows
-//     trips.forEach((trip) => {
-//       worksheet.addRow({
-//         tripId: trip._id.toString(),
-//         vehicleNumber: trip.vehicleNumber,
-//         entryTime: trip.entryTime
-//           ? new Date(trip.entryTime).toLocaleString('en-IN', {
-//             day: '2-digit',
-//             month: '2-digit',
-//             year: 'numeric',
-//             hour: '2-digit',
-//             minute: '2-digit',
-//             hour12: true
-//           })
-//           : '-',
-//         exitTime: trip.exitTime
-//           ? new Date(trip.exitTime).toLocaleString('en-IN', {
-//             day: '2-digit',
-//             month: '2-digit',
-//             year: 'numeric',
-//             hour: '2-digit',
-//             minute: '2-digit',
-//             hour12: true
-//           })
-//           : '-',
-//         status: trip.status || 'Active'
-//       });
-//     });
-
-//     // Add borders to all cells
-//     worksheet.eachRow((row, rowNumber) => {
-//       row.eachCell((cell) => {
-//         cell.border = {
-//           top: { style: 'thin' },
-//           left: { style: 'thin' },
-//           bottom: { style: 'thin' },
-//           right: { style: 'thin' }
-//         };
-
-//         // Center align all cells except Trip ID
-//         if (cell.col !== 1) {
-//           cell.alignment = { vertical: 'middle', horizontal: 'center' };
-//         }
-//       });
-//     });
-
-//     // Set response headers
-//     res.setHeader(
-//       'Content-Type',
-//       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-//     );
-//     res.setHeader(
-//       'Content-Disposition',
-//       `attachment; filename=trips_report_${Date.now()}.xlsx`
-//     );
-
-//     // Write to response
-//     await workbook.xlsx.write(res);
-//     res.end();
-
-//   } catch (err) {
-//     console.error('Export reports error:', err);
-//     next(err);
-//   }
-// };
-// // GET TRIP REPORTS
-// // GET TRIP REPORTS
-// export const getTripReports = async (req, res) => {
-//   try {
-//     const { startDate, endDate } = req.query;
-    
-//     console.log('👤 User ID:', req.user.id);
-//     console.log('👤 User role:', req.user.role);
-
-//     // 1. Get the project manager and their assigned sites
-//     let projectManager;
-//     let assignedSites = [];
-    
-//     if (req.user.role === 'project_manager') {
-//       // Find project manager by user ID
-//       projectManager = await ProjectManager.findOne({ user: req.user.id })
-//         .populate('assignedSites', '_id name siteId');
-      
-//       console.log('🏢 Project Manager found:', projectManager?._id);
-//       console.log('🏢 PM name:', projectManager?.name);
-      
-//       if (projectManager) {
-//         assignedSites = projectManager.assignedSites || [];
-//       }
-//     }
-    
-//     // Get site IDs from assigned sites
-//     const siteIds = assignedSites.map(site => site._id);
-    
-//     console.log('📍 Assigned Sites:', siteIds.length);
-//     console.log('📍 Site IDs:', siteIds);
-
-//     // 2. Build filter based on sites
-//     const filter = {};
-    
-//     if (siteIds.length > 0) {
-//       filter.siteId = { $in: siteIds };
-//     } else {
-//       // If no sites assigned, return empty array
-//       return res.json([]);
-//     }
-
-//     // 3. Date range filter
-//     if (startDate && endDate) {
-//       filter.entryAt = {
-//         $gte: new Date(startDate),
-//         $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999))
-//       };
-//     }
-
-//     console.log('🔍 Filter being used:', JSON.stringify(filter, null, 2));
-
-//     // 4. Get trips
-//     const reports = await Trip.find(filter)
-//       .populate('vehicleId', 'vehicleNumber')
-//       .populate('vendorId', 'name email phone')
-//       .populate('siteId', 'name location siteId')
-//       .populate('supervisorId', 'name email')
-//       .populate('clientId', 'name')
-//       .populate('projectManagerId', 'name email')
-//       .sort({ entryAt: -1 });
-
-//     console.log(`📊 Found ${reports.length} trips for user ${req.user.id}`);
-
-//     // 5. Format response
-//     const formattedReports = reports.map(trip => ({
-//       _id: trip._id,
-//       tripId: trip.tripId,
-//       vehicleNumber: trip.plateText || trip.vehicleId?.vehicleNumber || 'N/A',
-//       vehicleId: trip.vehicleId,
-//       vendor: trip.vendorId?.name || 'N/A',
-//       vendorId: trip.vendorId,
-//       client: trip.clientId?.name || 'N/A',
-//       clientId: trip.clientId,
-//       site: trip.siteId?.name || 'N/A',
-//       siteId: trip.siteId?._id,
-//       siteLocation: trip.siteId?.location,
-//       supervisor: trip.supervisorId?.name || 'N/A',
-//       supervisorId: trip.supervisorId,
-//       projectManager: trip.projectManagerId?.name || 'N/A',
-//       projectManagerId: trip.projectManagerId,
-//       loadStatus: trip.loadStatus,
-//       entryTime: trip.entryAt,
-//       exitTime: trip.exitAt,
-//       entryGate: trip.entryGate,
-//       exitGate: trip.exitGate,
-//       status: trip.status,
-//       notes: trip.notes,
-//       createdAt: trip.createdAt,
-//       // Calculate duration
-//       duration: trip.exitAt && trip.entryAt ? 
-//         (() => {
-//           const diff = new Date(trip.exitAt) - new Date(trip.entryAt);
-//           const hours = Math.floor(diff / (1000 * 60 * 60));
-//           const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-//           return `${hours}h ${minutes}m`;
-//         })() : '--'
-//     }));
-
-//     res.json(formattedReports);
-//   } catch (err) {
-//     console.error('❌ Error in getTripReports:', err);
-//     res.status(500).json({ 
-//       message: "Error fetching trip reports", 
-//       error: err.message 
-//     });
-//   }
-// };
-// // EXPORT REPORTS TO EXCEL
-// // EXPORT REPORTS TO EXCEL
-// // EXPORT REPORTS TO EXCEL
-// export const exportReportsToExcel = async (req, res) => {
-//   try {
-//     const { startDate, endDate } = req.query;
-    
-//     console.log('📤 Export request from user:', req.user.id);
-
-//     // 1. Get project manager and assigned sites
-//     let projectManager;
-//     let assignedSites = [];
-    
-//     if (req.user.role === 'project_manager') {
-//       projectManager = await ProjectManager.findOne({ user: req.user.id })
-//         .populate('assignedSites', '_id name');
-      
-//       if (projectManager) {
-//         assignedSites = projectManager.assignedSites || [];
-//       }
-//     }
-    
-//     const siteIds = assignedSites.map(site => site._id);
-    
-//     // Build filter
-//     const filter = {};
-    
-//     if (siteIds.length > 0) {
-//       filter.siteId = { $in: siteIds };
-//     } else {
-//       // If no sites, return empty Excel
-//       const wb = XLSX.utils.book_new();
-//       const ws = XLSX.utils.json_to_sheet([{ 'Message': 'No trips found for your assigned sites' }]);
-//       XLSX.utils.book_append_sheet(wb, ws, 'Trip Reports');
-//       const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-      
-//       res.setHeader('Content-Disposition', `attachment; filename=trip_reports_${Date.now()}.xlsx`);
-//       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-//       return res.send(buffer);
-//     }
-
-//     if (startDate && endDate) {
-//       filter.entryAt = {
-//         $gte: new Date(startDate),
-//         $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999))
-//       };
-//     }
-
-//     console.log('📤 Export filter:', filter);
-
-//     const reports = await Trip.find(filter)
-//       .populate('vehicleId', 'vehicleNumber')
-//       .populate('vendorId', 'name email phone')
-//       .populate('siteId', 'name location')
-//       .populate('supervisorId', 'name')
-//       .populate('clientId', 'name')
-//       .populate('projectManagerId', 'name email')
-//       .sort({ entryAt: -1 });
-
-//     console.log(`📤 Exporting ${reports.length} trips`);
-
-//     // Calculate duration helper
-//     const calculateDuration = (entryAt, exitAt) => {
-//       if (!exitAt) return '-';
-//       const diff = new Date(exitAt) - new Date(entryAt);
-//       const hours = Math.floor(diff / (1000 * 60 * 60));
-//       const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-//       return `${hours}h ${minutes}m`;
-//     };
-
-//     // Format data for Excel
-//     const excelData = reports.map(report => ({
-//       'Trip ID': report.tripId || 'N/A',
-//       'Vehicle': report.plateText || report.vehicleId?.vehicleNumber || 'N/A',
-//       'Vendor': report.vendorId?.name || 'N/A',
-//       'Client': report.clientId?.name || 'N/A',
-//       'Site': report.siteId?.name || 'N/A',
-//       'Location': report.siteId?.location || 'N/A',
-//       'Project Manager': report.projectManagerId?.name || 'N/A',
-//       'Supervisor': report.supervisorId?.name || 'N/A',
-//       'Load Status': report.loadStatus || 'N/A',
-//       'Entry Time': report.entryAt ? new Date(report.entryAt).toLocaleString() : '-',
-//       'Exit Time': report.exitAt ? new Date(report.exitAt).toLocaleString() : '-',
-//       'Duration': calculateDuration(report.entryAt, report.exitAt),
-//       'Entry Gate': report.entryGate || '-',
-//       'Exit Gate': report.exitGate || '-',
-//       'Status': getStatusDisplay(report.status),
-//       'Notes': report.notes || '-'
-//     }));
-
-//     // Helper function for status display
-//     function getStatusDisplay(status) {
-//       switch(status) {
-//         case 'INSIDE':
-//         case 'active':
-//           return 'Active';
-//         case 'EXITED':
-//         case 'completed':
-//           return 'Completed';
-//         case 'cancelled':
-//           return 'Cancelled';
-//         default:
-//           return status || 'N/A';
-//       }
-//     }
-
-//     // Create workbook and worksheet
-//     const wb = XLSX.utils.book_new();
-//     const ws = XLSX.utils.json_to_sheet(excelData);
-
-//     // Set column widths
-//     ws['!cols'] = [
-//       { wch: 12 }, // Trip ID
-//       { wch: 16 }, // Vehicle
-//       { wch: 20 }, // Vendor
-//       { wch: 20 }, // Client
-//       { wch: 25 }, // Site
-//       { wch: 20 }, // Location
-//       { wch: 20 }, // Project Manager
-//       { wch: 18 }, // Supervisor
-//       { wch: 12 }, // Load Status
-//       { wch: 20 }, // Entry Time
-//       { wch: 20 }, // Exit Time
-//       { wch: 12 }, // Duration
-//       { wch: 12 }, // Entry Gate
-//       { wch: 12 }, // Exit Gate
-//       { wch: 12 }, // Status
-//       { wch: 30 }  // Notes
-//     ];
-
-//     // Add worksheet to workbook
-//     XLSX.utils.book_append_sheet(wb, ws, 'Trip Reports');
-
-//     // Generate buffer
-//     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-
-//     // Set headers for download
-//     res.setHeader('Content-Disposition', `attachment; filename=trip_reports_${Date.now()}.xlsx`);
-//     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-
-//     res.send(buffer);
-//   } catch (err) {
-//     console.error('❌ Error in exportReportsToExcel:', err);
-//     res.status(500).json({ 
-//       message: "Error exporting reports", 
-//       error: err.message 
-//     });
-//   }
-// };
-
-// // GET REPORT STATS
-// // GET REPORT STATS
-// export const getReportStats = async (req, res) => {
-//   try {
-//     const { startDate, endDate } = req.query;
-    
-//     console.log('📊 Stats request from user:', req.user.id);
-
-//     // 1. Get project manager and assigned sites
-//     let projectManager;
-//     let assignedSites = [];
-    
-//     if (req.user.role === 'project_manager') {
-//       projectManager = await ProjectManager.findOne({ user: req.user.id })
-//         .populate('assignedSites', '_id name');
-      
-//       if (projectManager) {
-//         assignedSites = projectManager.assignedSites || [];
-//       }
-//     }
-    
-//     const siteIds = assignedSites.map(site => site._id);
-    
-//     // Build filter
-//     const filter = {};
-    
-//     if (siteIds.length > 0) {
-//       filter.siteId = { $in: siteIds };
-//     } else {
-//       // If no sites, return zero stats
-//       return res.json({
-//         totalTrips: 0,
-//         completedTrips: 0,
-//         activeTrips: 0,
-//         averageDurationMinutes: 0
-//       });
-//     }
-
-//     if (startDate && endDate) {
-//       filter.entryAt = {
-//         $gte: new Date(startDate),
-//         $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999))
-//       };
-//     }
-
-//     console.log('📊 Stats filter:', filter);
-
-//     const [totalTrips, completedTrips, activeTrips, totalDuration] = await Promise.all([
-//       Trip.countDocuments(filter),
-//       Trip.countDocuments({ 
-//         ...filter, 
-//         status: { $in: ["EXITED", "completed"] }
-//       }),
-//       Trip.countDocuments({ 
-//         ...filter, 
-//         status: { $in: ["INSIDE", "active"] }
-//       }),
-//       Trip.aggregate([
-//         { 
-//           $match: { 
-//             ...filter, 
-//             status: { $in: ["EXITED", "completed"] }, 
-//             exitAt: { $exists: true, $ne: null },
-//             entryAt: { $exists: true, $ne: null }
-//           } 
-//         },
-//         {
-//           $project: {
-//             duration: { 
-//               $subtract: ["$exitAt", "$entryAt"] 
-//             }
-//           }
-//         },
-//         {
-//           $group: {
-//             _id: null,
-//             totalDuration: { $sum: "$duration" }
-//           }
-//         }
-//       ])
-//     ]);
-
-//     console.log('📊 Stats Results:', {
-//       totalTrips,
-//       completedTrips,
-//       activeTrips,
-//       totalDuration: totalDuration[0]?.totalDuration || 0
-//     });
-
-//     const avgDuration = totalDuration.length > 0 && completedTrips > 0
-//       ? Math.floor(totalDuration[0].totalDuration / completedTrips / (1000 * 60))
-//       : 0;
-
-//     res.json({
-//       totalTrips,
-//       completedTrips,
-//       activeTrips,
-//       averageDurationMinutes: avgDuration
-//     });
-//   } catch (err) {
-//     console.error('❌ Error in getReportStats:', err);
-//     res.status(500).json({ 
-//       message: "Error fetching report stats", 
-//       error: err.message 
-//     });
-//   }
-// };
 import Trip from "../models/Trip.model.js";
 import Site from "../models/Site.model.js";
 import Supervisor from "../models/supervisor.model.js";
@@ -1080,44 +489,59 @@ export const exportReports = async (req, res, next) => {
     }
   }
 };
-// GET TRIP REPORTS (Project Manager)
-export const getTripReports = async (req, res) => {
+/* ======================================================
+   GET TRIP REPORTS (Project Manager - SPECIFIC FOR PM REPORTS PAGE)
+====================================================== */
+export const getTripReportsPM = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     
-    console.log('👤 User ID:', req.user.id);
-    console.log('👤 User role:', req.user.role);
+    console.log('👤 PM Reports - User ID:', req.user.id);
+    console.log('👤 PM Reports - User role:', req.user.role);
 
-    // 1. Get the project manager and their assigned sites
+    // 1. Get the project manager by USER ID
     let projectManager;
     let assignedSites = [];
     
     if (req.user.role === 'project_manager') {
-      // Find project manager by user ID
-      projectManager = await ProjectManager.findOne({ user: req.user.id })
-        .populate('assignedSites', '_id name siteId');
+      // ✅ FIXED: Find by user ID (from JWT token)
+      projectManager = await ProjectManager.findOne({ 
+        _id: req.user.id  // ← Use ID instead of email
+      }).populate('assignedSites', '_id name siteId');
       
+      console.log('🔍 Query used:', { _id: req.user.id });
       console.log('🏢 Project Manager found:', projectManager?._id);
-      console.log('🏢 PM name:', projectManager?.name);
       
       if (projectManager) {
+        console.log('✅ PM Details:');
+        console.log('- PM ID:', projectManager._id);
+        console.log('- PM Name:', projectManager.name);
+        console.log('- PM Email:', projectManager.email);
+        console.log('- Assigned Sites Count:', projectManager.assignedSites?.length || 0);
+        
         assignedSites = projectManager.assignedSites || [];
+      } else {
+        console.log('❌ No Project Manager found with ID:', req.user.id);
       }
+    } else {
+      return res.status(403).json({ 
+        message: "Access denied. Only Project Managers can access this." 
+      });
     }
     
     // Get site IDs from assigned sites
     const siteIds = assignedSites.map(site => site._id);
     
-    console.log('📍 Assigned Sites:', siteIds.length);
-    console.log('📍 Site IDs:', siteIds);
+    console.log('📍 Assigned Sites count:', siteIds.length);
 
     // 2. Build filter based on sites
     const filter = {};
     
     if (siteIds.length > 0) {
       filter.siteId = { $in: siteIds };
+      console.log('📍 Filtering by sites:', siteIds);
     } else {
-      // If no sites assigned, return empty array
+      console.log('⚠️ No sites assigned to PM, returning empty array');
       return res.json([]);
     }
 
@@ -1129,9 +553,9 @@ export const getTripReports = async (req, res) => {
       };
     }
 
-    console.log('🔍 Filter being used:', JSON.stringify(filter, null, 2));
+    console.log('🔍 Final filter:', JSON.stringify(filter, null, 2));
 
-    // 4. Get trips
+    // 4. Get trips - Make sure Trip model is imported
     const reports = await Trip.find(filter)
       .populate('vehicleId', 'vehicleNumber')
       .populate('vendorId', 'name email phone')
@@ -1141,46 +565,51 @@ export const getTripReports = async (req, res) => {
       .populate('projectManagerId', 'name email')
       .sort({ entryAt: -1 });
 
-    console.log(`📊 Found ${reports.length} trips for user ${req.user.id}`);
+    console.log(`📊 Found ${reports.length} trips for PM ${projectManager?.email || req.user.id}`);
+
+    // Helper function to map status
+    const mapStatus = (status) => {
+      const statusMap = {
+        'INSIDE': 'active',
+        'EXITED': 'completed',
+        'active': 'active',
+        'completed': 'completed',
+        'cancelled': 'cancelled'
+      };
+      return statusMap[status] || status || 'unknown';
+    };
 
     // 5. Format response
     const formattedReports = reports.map(trip => ({
       _id: trip._id,
-      tripId: trip.tripId,
-      vehicleNumber: trip.plateText || trip.vehicleId?.vehicleNumber || 'N/A',
-      vehicleId: trip.vehicleId,
-      vendor: trip.vendorId?.name || 'N/A',
-      vendorId: trip.vendorId,
-      client: trip.clientId?.name || 'N/A',
-      clientId: trip.clientId,
-      site: trip.siteId?.name || 'N/A',
-      siteId: trip.siteId?._id,
-      siteLocation: trip.siteId?.location,
-      supervisor: trip.supervisorId?.name || 'N/A',
-      supervisorId: trip.supervisorId,
-      projectManager: trip.projectManagerId?.name || 'N/A',
-      projectManagerId: trip.projectManagerId,
-      loadStatus: trip.loadStatus,
+      tripId: trip.tripId || 'N/A',
+      vehicleId: {
+        _id: trip.vehicleId?._id,
+        vehicleNumber: trip.plateText || trip.vehicleId?.vehicleNumber || 'N/A'
+      },
+      vendorId: {
+        _id: trip.vendorId?._id,
+        name: trip.vendorId?.name || 'N/A'
+      },
+      siteId: {
+        _id: trip.siteId?._id,
+        name: trip.siteId?.name || 'N/A',
+        location: trip.siteId?.location
+      },
       entryTime: trip.entryAt,
       exitTime: trip.exitAt,
+      status: mapStatus(trip.status),
+      loadStatus: trip.loadStatus,
       entryGate: trip.entryGate,
       exitGate: trip.exitGate,
-      status: trip.status,
-      notes: trip.notes,
-      createdAt: trip.createdAt,
-      // Calculate duration
-      duration: trip.exitAt && trip.entryAt ? 
-        (() => {
-          const diff = new Date(trip.exitAt) - new Date(trip.entryAt);
-          const hours = Math.floor(diff / (1000 * 60 * 60));
-          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-          return `${hours}h ${minutes}m`;
-        })() : '--'
+      notes: trip.notes
     }));
 
+    console.log(`📤 Sending ${formattedReports.length} reports to frontend`);
     res.json(formattedReports);
+    
   } catch (err) {
-    console.error('❌ Error in getTripReports:', err);
+    console.error('❌ Error in getTripReportsPM:', err);
     res.status(500).json({ 
       message: "Error fetching trip reports", 
       error: err.message 
@@ -1188,27 +617,45 @@ export const getTripReports = async (req, res) => {
   }
 };
 
-// EXPORT REPORTS TO EXCEL (Project Manager - using XLSX)
-export const exportReportsToExcel = async (req, res) => {
+/* ======================================================
+   EXPORT REPORTS TO EXCEL (Project Manager Reports Page)
+====================================================== */
+export const exportReportsToExcelPM = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     
-    console.log('📤 Export request from user:', req.user.id);
+    console.log('📤 PM Export request from user:', req.user.id);
+    console.log('📤 PM Email:', req.user.email);
 
-    // 1. Get project manager and assigned sites
+    // 1. Get project manager by EMAIL (not user ID)
     let projectManager;
     let assignedSites = [];
     
     if (req.user.role === 'project_manager') {
-      projectManager = await ProjectManager.findOne({ user: req.user.id })
-        .populate('assignedSites', '_id name');
+      // ✅ FIXED: Find by email
+      projectManager = await ProjectManager.findOne({ 
+        email: req.user.email 
+      }).populate('assignedSites', '_id name');
+      
+      console.log('🔍 PM Query:', { email: req.user.email });
+      console.log('🏢 PM Found:', projectManager ? 'Yes' : 'No');
       
       if (projectManager) {
+        console.log('✅ PM Details:');
+        console.log('- Name:', projectManager.name);
+        console.log('- Email:', projectManager.email);
+        console.log('- Assigned Sites:', projectManager.assignedSites?.length || 0);
+        
         assignedSites = projectManager.assignedSites || [];
+      } else {
+        console.log('❌ No Project Manager found with email:', req.user.email);
       }
     }
     
     const siteIds = assignedSites.map(site => site._id);
+    
+    console.log('📍 Assigned Site IDs:', siteIds);
+    console.log('📍 Site IDs count:', siteIds.length);
     
     // Build filter
     const filter = {};
@@ -1216,17 +663,43 @@ export const exportReportsToExcel = async (req, res) => {
     if (siteIds.length > 0) {
       filter.siteId = { $in: siteIds };
     } else {
-      // If no sites, return empty Excel
+      console.log('⚠️ No sites assigned, returning empty Excel');
+      
+      // Create a more informative Excel file
       const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet([{ 'Message': 'No trips found for your assigned sites' }]);
-      XLSX.utils.book_append_sheet(wb, ws, 'Trip Reports');
+      
+      // Create data showing the issue
+      const emptyData = [
+        { 'Issue': 'No Sites Assigned', 'Details': 'Project Manager has no assigned sites' },
+        { 'Issue': 'Project Manager', 'Details': req.user.name || req.user.email },
+        { 'Issue': 'Email', 'Details': req.user.email },
+        { 'Issue': 'Date Range', 'Details': `${startDate || 'All'} to ${endDate || 'All'}` },
+        { 'Issue': 'Solution', 'Details': 'Assign sites to this Project Manager in admin panel' }
+      ];
+      
+      const ws = XLSX.utils.json_to_sheet(emptyData);
+      XLSX.utils.book_append_sheet(wb, ws, 'No Data');
+      
+      // Add formatting
+      ws['!cols'] = [
+        { wch: 20 }, // Issue column
+        { wch: 40 }  // Details column
+      ];
+      
       const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
       
-      res.setHeader('Content-Disposition', `attachment; filename=trip_reports_${Date.now()}.xlsx`);
+      const filename = `trip_reports_${startDate || 'all'}_to_${endDate || 'all'}_${Date.now()}.xlsx`;
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       return res.send(buffer);
     }
 
+    // Add client filter as well
+    if (req.user.clientId) {
+      filter.clientId = req.user.clientId;
+    }
+
+    // Date range filter
     if (startDate && endDate) {
       filter.entryAt = {
         $gte: new Date(startDate),
@@ -1234,8 +707,9 @@ export const exportReportsToExcel = async (req, res) => {
       };
     }
 
-    console.log('📤 Export filter:', filter);
+    console.log('🔍 Export filter:', JSON.stringify(filter, null, 2));
 
+    // Get trips
     const reports = await Trip.find(filter)
       .populate('vehicleId', 'vehicleNumber')
       .populate('vendorId', 'name email phone')
@@ -1245,20 +719,59 @@ export const exportReportsToExcel = async (req, res) => {
       .populate('projectManagerId', 'name email')
       .sort({ entryAt: -1 });
 
-    console.log(`📤 Exporting ${reports.length} trips`);
+    console.log(`📤 Found ${reports.length} trips for export`);
+
+    if (reports.length === 0) {
+      // Create Excel with message
+      const wb = XLSX.utils.book_new();
+      const emptyData = [
+        { 'Message': 'No trips found for the selected criteria' },
+        { 'Date Range': `${startDate || 'All'} to ${endDate || 'All'}` },
+        { 'Sites': siteIds.length },
+        { 'Project Manager': req.user.name || req.user.email }
+      ];
+      
+      const ws = XLSX.utils.json_to_sheet(emptyData);
+      XLSX.utils.book_append_sheet(wb, ws, 'No Trips');
+      
+      const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      
+      const filename = `trip_reports_${startDate || 'all'}_to_${endDate || 'all'}_${Date.now()}.xlsx`;
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      return res.send(buffer);
+    }
 
     // Calculate duration helper
     const calculateDuration = (entryAt, exitAt) => {
-      if (!exitAt) return '-';
+      if (!entryAt || !exitAt) return '-';
       const diff = new Date(exitAt) - new Date(entryAt);
+      if (diff < 0) return '-';
+      
       const hours = Math.floor(diff / (1000 * 60 * 60));
       const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
       return `${hours}h ${minutes}m`;
     };
 
+    // Helper function for status display
+    const getStatusDisplay = (status) => {
+      switch(status?.toLowerCase()) {
+        case 'inside':
+        case 'active':
+          return 'Active';
+        case 'exited':
+        case 'completed':
+          return 'Completed';
+        case 'cancelled':
+          return 'Cancelled';
+        default:
+          return status || 'N/A';
+      }
+    };
+
     // Format data for Excel
     const excelData = reports.map(report => ({
-      'Trip ID': report.tripId || 'N/A',
+      // 'Trip ID': report.tripId || 'N/A',
       'Vehicle': report.plateText || report.vehicleId?.vehicleNumber || 'N/A',
       'Vendor': report.vendorId?.name || 'N/A',
       'Client': report.clientId?.name || 'N/A',
@@ -1267,30 +780,28 @@ export const exportReportsToExcel = async (req, res) => {
       'Project Manager': report.projectManagerId?.name || 'N/A',
       'Supervisor': report.supervisorId?.name || 'N/A',
       'Load Status': report.loadStatus || 'N/A',
-      'Entry Time': report.entryAt ? new Date(report.entryAt).toLocaleString() : '-',
-      'Exit Time': report.exitAt ? new Date(report.exitAt).toLocaleString() : '-',
+      'Entry Time': report.entryAt ? new Date(report.entryAt).toLocaleString('en-IN', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      }) : '-',
+      'Exit Time': report.exitAt ? new Date(report.exitAt).toLocaleString('en-IN', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      }) : '-',
       'Duration': calculateDuration(report.entryAt, report.exitAt),
       'Entry Gate': report.entryGate || '-',
       'Exit Gate': report.exitGate || '-',
       'Status': getStatusDisplay(report.status),
       'Notes': report.notes || '-'
     }));
-
-    // Helper function for status display
-    function getStatusDisplay(status) {
-      switch(status) {
-        case 'INSIDE':
-        case 'active':
-          return 'Active';
-        case 'EXITED':
-        case 'completed':
-          return 'Completed';
-        case 'cancelled':
-          return 'Cancelled';
-        default:
-          return status || 'N/A';
-      }
-    }
 
     // Create workbook and worksheet
     const wb = XLSX.utils.book_new();
@@ -1323,25 +834,34 @@ export const exportReportsToExcel = async (req, res) => {
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 
     // Set headers for download
-    res.setHeader('Content-Disposition', `attachment; filename=trip_reports_${Date.now()}.xlsx`);
+    const filename = `trip_reports_${startDate || 'all'}_to_${endDate || 'all'}_${Date.now()}.xlsx`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 
+    console.log(`✅ Export successful: ${reports.length} trips`);
     res.send(buffer);
+    
   } catch (err) {
-    console.error('❌ Error in exportReportsToExcel:', err);
-    res.status(500).json({ 
-      message: "Error exporting reports", 
-      error: err.message 
-    });
+    console.error('❌ Error in exportReportsToExcelPM:', err);
+    console.error('❌ Stack trace:', err.stack);
+    
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        message: "Error exporting reports", 
+        error: err.message 
+      });
+    }
   }
 };
 
-// GET REPORT STATS
-export const getReportStats = async (req, res) => {
+/* ======================================================
+   GET REPORT STATS (Project Manager Reports Page)
+====================================================== */
+export const getReportStatsPM = async (req, res) => {  // ✅ Changed function name
   try {
     const { startDate, endDate } = req.query;
     
-    console.log('📊 Stats request from user:', req.user.id);
+    console.log('📊 PM Stats request from user:', req.user.id);
 
     // 1. Get project manager and assigned sites
     let projectManager;
@@ -1380,7 +900,7 @@ export const getReportStats = async (req, res) => {
       };
     }
 
-    console.log('📊 Stats filter:', filter);
+    console.log('📊 PM Stats filter:', filter);
 
     const [totalTrips, completedTrips, activeTrips, totalDuration] = await Promise.all([
       Trip.countDocuments(filter),
@@ -1417,7 +937,7 @@ export const getReportStats = async (req, res) => {
       ])
     ]);
 
-    console.log('📊 Stats Results:', {
+    console.log('📊 PM Stats Results:', {
       totalTrips,
       completedTrips,
       activeTrips,
@@ -1435,7 +955,7 @@ export const getReportStats = async (req, res) => {
       averageDurationMinutes: avgDuration
     });
   } catch (err) {
-    console.error('❌ Error in getReportStats:', err);
+    console.error('❌ Error in getReportStatsPM:', err);
     res.status(500).json({ 
       message: "Error fetching report stats", 
       error: err.message 

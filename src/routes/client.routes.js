@@ -28,8 +28,8 @@ import { checkUserLimit } from "../middlewares/checkUserLimit.middleware.js";
 import { createClientSite,  deleteClientSite,   getClientSites,  updateClientSite,  } from "../controllers/site.controller.js";
 import { createSupervisor, getSupervisors, updateSupervisor } from "../controllers/supervisor.controller.js";
 import { getDevices } from "../controllers/device.controller.js";
+import { exportReports, exportReportsToExcelPM, getReports, getReportStatsPM, getTripReportsPM, siteWise, summary } from "../controllers/report.controller.js";
 // In client.routes.js
-import { summary, siteWise, exportReportsToExcel, getReports, getTripReports, getReportStats, exportReports } from "../controllers/report.controller.js";
 const router = express.Router();
   /**
    * @route   POST /api/clients
@@ -192,21 +192,21 @@ router.get(
   "/trips/reports",
   verifyAccessToken,
   authorizeRoles("client", "admin", "project_manager"),
-  getTripReports
+  getTripReportsPM
 );
 
 router.get(
   "/trips/export", // ✅ Changed endpoint to avoid conflict
   verifyAccessToken,
   authorizeRoles("client", "admin", "project_manager"),
-  exportReportsToExcel // Project manager export (XLSX)
+  exportReportsToExcelPM // Project manager export (XLSX)
 );
 
 router.get(
   "/trips/stats",
   verifyAccessToken,
   authorizeRoles("client", "admin", "project_manager"),
-  getReportStats
+  getReportStatsPM
 );
 
 // Dashboard routes

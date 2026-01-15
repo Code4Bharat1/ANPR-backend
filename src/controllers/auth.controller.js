@@ -1,8 +1,6 @@
-
 import RefreshToken from "../models/RefreshToken.model.js";
 import { generateAccessToken, generateRefreshToken, verifyRefresh } from "../utils/token.util.js";
 import { comparePassword, hashPassword } from "../utils/hash.util.js";
-import { logAudit } from "../middlewares/audit.middleware.js";
 
 // ✅ STATIC MODEL IMPORTS (IMPORTANT)
 import SuperAdmin from "../models/superadmin.model.js";
@@ -20,6 +18,9 @@ const ROLE_MODEL_MAP = {
   supervisor: Supervisor,
 };
 
+/* ======================================================
+   LOGIN (EMAIL OR PHONE)
+====================================================== */
 /* ======================================================
    LOGIN (EMAIL OR PHONE)
 ====================================================== */
@@ -72,8 +73,10 @@ export const login = async (req, res, next) => {
     let clientId = user.clientId || null;
     if (user.role === "client") clientId = user._id;
 
+    // ✅ ADD EMAIL TO PAYLOAD
     const payload = {
       id: user._id,
+      email: user.email,  // ← ADD THIS LINE
       role: user.role,
       clientId,
       siteId: user.siteId || null,
@@ -111,7 +114,6 @@ export const login = async (req, res, next) => {
   }
 };
 
-
 /* ======================================================
    REFRESH TOKEN
 ====================================================== */
@@ -123,17 +125,39 @@ export const refresh = async (req, res, next) => {
       return res.status(401).json({ message: "No refresh token" });
     }
 
+    // Verify the refresh token first
+    let decoded;
+    try {
+      decoded = verifyRefresh(refreshToken);
+    } catch (err) {
+      return res.status(401).json({ message: "Invalid refresh token" });
+    }
+
+    // Find stored refresh token
     const stored = await RefreshToken.findOne({ token: refreshToken });
     if (!stored) {
       return res.status(401).json({ message: "Invalid refresh token" });
     }
 
-    const decoded = verifyRefresh(refreshToken);
-    if (!user || user.isActive === false) {
+    // Find the user based on role
+    const UserModel = ROLE_MODEL_MAP[decoded.role];
+    if (!UserModel) {
+      return res.status(401).json({ message: "Invalid user role" });
+    }
+
+    const user = await UserModel.findById(decoded.id);
+    if (!user) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    // Check if account is active
+    if (user.isActive === false) {
       return res.status(403).json({
         message: "Account deactivated",
       });
     }
+
+    // Generate new access token
     const newAccessToken = generateAccessToken({
       id: decoded.id,
       role: decoded.role,
@@ -146,11 +170,9 @@ export const refresh = async (req, res, next) => {
   }
 };
 
-
 /* ======================================================
    LOGOUT
 ====================================================== */
-
 export const logout = async (req, res, next) => {
   try {
     const refreshToken = req.cookies.refreshToken;
@@ -170,7 +192,6 @@ export const logout = async (req, res, next) => {
     next(err);
   }
 };
-
 
 /* ======================================================
    REGISTER SUPER ADMIN (ONE TIME)
