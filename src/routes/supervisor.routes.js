@@ -2,6 +2,8 @@
 import express from "express";
 import { verifyAccessToken } from "../middlewares/auth.middleware.js";
 import { authorizeRoles } from "../middlewares/role.middleware.js";
+// Add this import at the top
+import { exportAnalyticsReport } from "../controllers/supervisor.controller.js";
 import {
     createSupervisor,
     getSupervisors,
@@ -102,6 +104,16 @@ router.get(
   verifyAccessToken,
   authorizeRoles("supervisor"),
   getMyAssignedSite
+);
+
+
+
+// Add this route with the other supervisor routes
+router.get(
+  "/analytics/export",
+  verifyAccessToken,
+  authorizeRoles("supervisor"),
+  exportAnalyticsReport
 );
 
 export default router;

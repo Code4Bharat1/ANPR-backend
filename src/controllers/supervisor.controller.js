@@ -747,3 +747,115 @@ export const getMyAssignedSite = async (req, res, next) => {
     next(error);
   }
 };
+
+// Add this function at the end of your supervisor.controller.js file
+export const exportAnalyticsReport = async (req, res, next) => {
+  try {
+    const siteId = req.user.siteId;
+    const { period = "last7days" } = req.query;
+
+    if (!siteId) {
+      return res.status(400).json({ message: "Site not assigned" });
+    }
+
+    // Date range based on period
+    const now = new Date();
+    let startDate;
+
+    switch (period) {
+      case "today":
+        startDate = new Date();
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "last7days":
+        startDate = new Date();
+        startDate.setDate(startDate.getDate() - 7);
+        break;
+      default:
+        startDate = new Date();
+        startDate.setDate(startDate.getDate() - 7);
+    }
+
+    const endDate = new Date();
+
+    // Get trips for the selected period
+    const trips = await Trip.find({
+      siteId,
+      entryAt: { $gte: startDate, $lte: endDate },
+    })
+      .populate("vehicleId", "vehicleNumber vehicleType")
+      .populate("vendorId", "name")
+      .sort({ entryAt: -1 })
+      .lean();
+
+    // Get site info
+    const site = await Site.findById(siteId).lean();
+
+    // Create Excel workbook
+    const workbook = new ExcelJS.Workbook();
+    
+    // Add a worksheet
+    const worksheet = workbook.addWorksheet('Analytics Report');
+    
+    // Add headers
+    worksheet.columns = [
+      { header: 'Trip ID', key: 'tripId', width: 20 },
+      { header: 'Vehicle Number', key: 'vehicleNumber', width: 20 },
+      { header: 'Vehicle Type', key: 'vehicleType', width: 15 },
+      { header: 'Vendor', key: 'vendor', width: 20 },
+      { header: 'Entry Time', key: 'entryTime', width: 25 },
+      { header: 'Exit Time', key: 'exitTime', width: 25 },
+      { header: 'Status', key: 'status', width: 12 },
+      { header: 'Purpose', key: 'purpose', width: 15 },
+      { header: 'Gate', key: 'gate', width: 15 },
+    ];
+
+    // Add data rows
+    trips.forEach(trip => {
+      worksheet.addRow({
+        tripId: trip.tripId || `TRP-${trip._id.toString().slice(-6)}`,
+        vehicleNumber: trip.vehicleId?.vehicleNumber || trip.plateText || 'N/A',
+        vehicleType: trip.vehicleId?.vehicleType || 'N/A',
+        vendor: trip.vendorId?.name || 'N/A',
+        entryTime: trip.entryAt ? new Date(trip.entryAt).toLocaleString() : 'N/A',
+        exitTime: trip.exitAt ? new Date(trip.exitAt).toLocaleString() : 'N/A',
+        status: trip.status,
+        purpose: trip.purpose || 'N/A',
+        gate: trip.entryGate || trip.exitGate || 'N/A'
+      });
+    });
+
+    // Add summary at the beginning
+    worksheet.insertRow(1, ['Site Analytics Report']);
+    worksheet.insertRow(2, ['']);
+    worksheet.insertRow(3, ['Site:', site?.name || 'Unknown']);
+    worksheet.insertRow(4, ['Period:', period]);
+    worksheet.insertRow(5, ['Date Range:', `${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}`]);
+    worksheet.insertRow(6, ['Total Trips:', trips.length]);
+    worksheet.insertRow(7, ['Generated On:', new Date().toLocaleString()]);
+    worksheet.insertRow(8, ['']);
+
+    // Style the header
+    worksheet.getRow(10).font = { bold: true };
+
+    // Set response headers
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    
+    const filename = `analytics-report-${new Date().toISOString().split('T')[0]}.xlsx`;
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`
+    );
+
+    // Send the Excel file
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (err) {
+    console.error('Export analytics error:', err);
+    next(err);
+  }
+};
