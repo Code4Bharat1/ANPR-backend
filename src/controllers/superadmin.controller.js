@@ -371,22 +371,32 @@ export const createDevice = async (req, res) => {
   try {
     const {
       clientId,
+      deviceName,  // ✅ 这个字段是必须的
       siteId,
       deviceType,
       serialNumber,
+      ipAddress,
+      notes
     } = req.body;
 
-    if (!clientId || !deviceType || !serialNumber) {
+    console.log("Received data:", req.body); // 调试用
+
+    // ✅ 更新验证逻辑，包含 deviceName
+    if (!clientId || !deviceType || !serialNumber || !deviceName) {
       return res.status(400).json({
-        message: "clientId, deviceType and serialNumber are required"
+        message: "clientId, deviceType, serialNumber and deviceName are required",
+        received: { clientId, deviceType, serialNumber, deviceName }
       });
     }
 
     const device = await Device.create({
       clientId,
       siteId,
+      deviceName,  // ✅ 保存到数据库
       devicetype: deviceType.toUpperCase(),
       serialNo: serialNumber,
+      ipAddress,
+      notes
     });
 
     res.status(201).json({
@@ -395,10 +405,29 @@ export const createDevice = async (req, res) => {
     });
   } catch (error) {
     console.error("Create device error:", error);
-    res.status(500).json({ message: "Failed to create device" });
+    
+    // ✅ 处理重复的序列号错误
+    if (error.code === 11000) {
+      return res.status(400).json({ 
+        message: "Device with this serial number already exists" 
+      });
+    }
+    
+    // ✅ 处理验证错误
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({ 
+        message: "Validation error",
+        errors: messages 
+      });
+    }
+    
+    res.status(500).json({ 
+      message: "Failed to create device",
+      error: error.message 
+    });
   }
 };
-
 export const deviceStats = async (req, res, next) => {
   try {
     const total = await Device.countDocuments();
@@ -419,7 +448,7 @@ export const listDevices = async (req, res) => {
 
     const formatted = devices.map(d => ({
       _id: d._id,
-      name: d.serialNo,
+      name: d.deviceName || d.serialNo, // ✅ Yeh line change karein
       deviceId: d.serialNo,
       type: d.devicetype,
       status: d.isOnline ? "online" : "offline",
@@ -451,7 +480,7 @@ export const toggleDevice = async (req, res, next) => {
 
     const formatted = {
       _id: device._id,
-      name: device.serialNo,
+        name: device.deviceName || device.serialNo, // ✅ Change
       deviceId: device.serialNo,
       type: device.devicetype,
       status: device.isOnline ? "online" : "offline",
@@ -479,7 +508,7 @@ export const getDeviceById = async (req, res, next) => {
 
     const formattedDevice = {
       _id: device._id,
-      name: device.serialNo,
+        name: device.deviceName || device.serialNo, // ✅ Change
       deviceId: device.serialNo,
       type: device.devicetype,
       status: device.isOnline ? "online" : "offline",
@@ -534,7 +563,7 @@ export const updateDevice = async (req, res, next) => {
 
     res.json({
       _id: populatedDevice._id,
-      name: populatedDevice.serialNo,
+        name: device.deviceName || device.serialNo, // ✅ Change
       deviceId: populatedDevice.serialNo,
       type: populatedDevice.devicetype,
       status: populatedDevice.isOnline ? "online" : "offline",

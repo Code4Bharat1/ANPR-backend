@@ -5,7 +5,20 @@ import { logAudit } from "../middlewares/audit.middleware.js";
 
 export const registerDevice = async (req, res, next) => {
   try {
-    const { serialNumber, deviceType, clientId, siteId, ipAddress, notes } = req.body;
+    console.log("📥 Received device registration request:", req.body); // Add debug
+    
+    const { serialNumber, deviceName, deviceType, clientId, siteId, ipAddress, notes } = req.body;
+
+    // Validate required fields
+    if (!serialNumber || !deviceType) {
+      return res.status(400).json({ 
+        message: "serialNumber and deviceType are required",
+        received: req.body 
+      });
+    }
+
+    // If deviceName is empty, use serial number as default
+    const finalDeviceName = deviceName || `Device_${serialNumber}`;
 
     // Check if device with this serial number already exists
     const existingDevice = await Device.findOne({ serialNo: serialNumber });
@@ -29,7 +42,9 @@ export const registerDevice = async (req, res, next) => {
       }
     }
 
+    // ✅ FIX: Add deviceName field
     const device = await Device.create({ 
+      deviceName: finalDeviceName, // ✅ Add this line
       devicetype: deviceType,
       serialNo: serialNumber,
       clientId,
@@ -58,6 +73,7 @@ export const registerDevice = async (req, res, next) => {
       data: formatDeviceResponse(device)
     });
   } catch (e) {
+    console.error("❌ Device registration error:", e);
     next(e);
   }
 };
@@ -252,34 +268,88 @@ export const listDevices = async (req, res, next) => {
       .populate('siteId', 'name')
       .sort({ createdAt: -1 });
 
+    // Debug: Check what data is coming from database
+    console.log("🔍 Database devices raw data:", devices.length, "devices found");
+    if (devices.length > 0) {
+      console.log("First device raw data:", {
+        _id: devices[0]._id,
+        deviceName: devices[0].deviceName,
+        serialNo: devices[0].serialNo,
+        devicetype: devices[0].devicetype
+      });
+    }
+
     const formattedDevices = devices.map(device => formatDeviceResponse(device));
+
+    // Debug: Check formatted data
+    console.log("📋 Formatted devices first item:", formattedDevices[0]);
 
     res.json(formattedDevices);
   } catch (e) {
+    console.error("❌ Error in listDevices:", e);
     next(e);
   }
 };
 export const getDevices = async (req, res) => {
-  const devices = await Device.find({ clientId: req.user.clientId });
-  res.json(devices);
+  try {
+    // Populate both client and site information
+    const devices = await Device.find({ clientId: req.user.clientId })
+      .populate('clientId', 'companyName name')  // Populate client
+      .populate('siteId', 'name address')        // Populate site
+      .select('-__v')  // Exclude version key
+      .lean();  // Convert to plain JavaScript objects
+
+    // Format the response properly
+    const formattedDevices = devices.map(device => ({
+      _id: device._id,
+      serialNo: device.serialNo,
+      deviceName: device.deviceName,
+      devicetype: device.devicetype,
+      type: device.devicetype, // Alias for frontend compatibility
+      isOnline: device.isOnline,
+      status: device.isOnline ? 'online' : 'offline',
+      lastActive: device.lastActive,
+      updatedAt: device.updatedAt,
+      createdAt: device.createdAt,
+      ipAddress: device.ipAddress,
+      notes: device.notes,
+      
+      // Client information (populated)
+      clientId: device.clientId?._id,
+      clientName: device.clientId?.companyName || device.clientId?.name,
+      
+      // Site information (populated - THIS IS WHAT YOU NEED!)
+      siteId: device.siteId?._id,
+      siteName: device.siteId?.name,  // This will now have the actual site name
+      site: device.siteId?.name,      // Alias for frontend
+      siteAddress: device.siteId?.address
+    }));
+
+    res.json(formattedDevices);
+  } catch (error) {
+    console.error('Error fetching devices:', error);
+    res.status(500).json({ message: 'Failed to fetch devices', error: error.message });
+  }
 };
 
 // Helper function to format device response
-function formatDeviceResponse(device) {
+// Add this function if it doesn't exist, or update your existing one
+const formatDeviceResponse = (device) => {
   return {
     _id: device._id,
-    name: device.name || `${device.type}-${device.serialNo}`,
+    name: device.deviceName || device.serialNo, // Make sure this exists
+    deviceName: device.deviceName, // ✅ Add this line to return deviceName
     deviceId: device.serialNo,
     type: device.devicetype,
-    status: device.isOnline ? 'online' : 'offline',
-    clientId: device.clientId?._id || device.clientId,
-    clientName: device.clientId?.companyName || device.clientId?.name,
-    siteId: device.siteId?._id || device.siteId,
-    siteName: device.siteId?.name,
+    status: device.isOnline ? "online" : "offline",
+    clientId: device.clientId?._id,
+    siteId: device.siteId?._id,
+    clientName: device.clientId?.companyName || device.clientId?.name || "Not Assigned",
+    siteName: device.siteId?.name || "Not Assigned",
     ipAddress: device.ipAddress,
     notes: device.notes,
-    lastActive: device.lastActive,
+    lastActive: device.lastActive || device.updatedAt,
     createdAt: device.createdAt,
     updatedAt: device.updatedAt
   };
-}
+};
