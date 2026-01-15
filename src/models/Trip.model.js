@@ -4,7 +4,7 @@ const mediaSchema = new mongoose.Schema(
   {
     photos: { type: [String], default: [] }, // Array of URLs/base64
     video: { type: String, default: "" },
-    challanImage: { type: String, required: true },
+    challanImage: { type: String, required: false },
   },
   { _id: false }
 );
@@ -40,12 +40,12 @@ const tripSchema = new mongoose.Schema(
     supervisorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Supervisor',
-      required: true
+    
     },
     projectManagerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true
+      
     },
 
     // Vehicle & ANPR Details
@@ -59,8 +59,8 @@ const tripSchema = new mongoose.Schema(
     // Load & Trip Details
     loadStatus: { 
       type: String, 
-      enum: ["FULL", "PARTIAL", "EMPTY"], 
-      required: true 
+      // enum: ["FULL", "PARTIAL", "EMPTY"], 
+      // required: true 
     },
     purpose: String,
     notes: String,
@@ -102,7 +102,7 @@ const tripSchema = new mongoose.Schema(
     createdBy: { 
       type: mongoose.Schema.Types.ObjectId, 
       ref: "Supervisor", 
-      required: true 
+      
     },
   },
   { 
