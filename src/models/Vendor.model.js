@@ -33,7 +33,7 @@ const vendorSchema = new mongoose.Schema({
   projectManagerId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "ProjectManager",
-    required: true
+    required: false
   },
   isActive: {
     type: Boolean,

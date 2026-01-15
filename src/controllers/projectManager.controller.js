@@ -513,7 +513,7 @@ export const getLiveVehicles = async (req, res) => {
 
 
 // Vendor routes
-// CREATE VENDOR
+// CREATE VENDOR (FIXED)
 export const createVendor = async (req, res) => {
   try {
     const { name, email, phone, address, assignedSites } = req.body;
@@ -524,7 +524,11 @@ export const createVendor = async (req, res) => {
     }
 
     // Check if vendor already exists
-    const existingVendor = await Vendor.findOne({ email });
+    const existingVendor = await Vendor.findOne({ 
+      email,
+      clientId: req.user.clientId  // Check within same client only
+    });
+    
     if (existingVendor) {
       return res.status(400).json({ message: "Vendor with this email already exists" });
     }
@@ -534,8 +538,9 @@ export const createVendor = async (req, res) => {
       email,
       phone,
       address,
-      assignedSites, // Array of site IDs
-      projectManagerId: req.user.id,
+      assignedSites,
+      clientId: req.user.clientId,       // ✅ REQUIRED field
+      projectManagerId: req.user.id,     // ✅ REQUIRED field - use req.user.id
       isActive: true,
       totalTrips: 0
     });
@@ -552,11 +557,13 @@ export const createVendor = async (req, res) => {
   }
 };
 
-// GET ALL VENDORS
+// GET ALL VENDORS (FIXED)
 export const getVendors = async (req, res) => {
   try {
-    const vendors = await Vendor.find({ projectManagerId: req.user.id })
-      .populate('assignedSites', 'name location') // Populate site details
+    // Get vendors for current user's client
+    const vendors = await Vendor.find({ clientId: req.user.clientId })
+      .populate('assignedSites', 'name location')
+      .populate('projectManagerId', 'name email')  // ✅ Populate project manager info
       .sort({ createdAt: -1 });
 
     res.json(vendors);
@@ -566,57 +573,86 @@ export const getVendors = async (req, res) => {
   }
 };
 
-// UPDATE VENDOR
-export const updateVendor = async (req, res, next) => {
+// UPDATE VENDOR (FIXED)
+export const updateVendor = async (req, res) => {
   try {
     const { id } = req.params;
+    const { name, email, phone, address, assignedSites } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid vendor ID" });
     }
 
-    const old = await Vendor.findById(id);
-    if (!old) {
-      return res.status(404).json({ message: "Vendor not found" });
-    }
-
-    // 🔐 Client-level authorization
-    if (String(old.clientId) !== String(req.user.clientId)) {
-      return res.status(403).json({ message: "Forbidden" });
-    }
-
-    const updated = await Vendor.findByIdAndUpdate(
-      id,
-      req.body,
-      { new: true, runValidators: true }
-    );
-
-    await logAudit({
-      req,
-      action: "UPDATE",
-      module: "VENDOR",
-      oldValue: old,
-      newValue: updated,
-    });
-
-    res.json({ success: true, data: updated });
-  } catch (e) {
-    next(e);
-  }
-};
-
-
-// TOGGLE VENDOR STATUS
-export const toggleVendorStatus = async (req, res) => {
-  try {
-    const vendor = await Vendor.findById(req.params.id);
+    // Find vendor
+    const vendor = await Vendor.findById(id);
     if (!vendor) {
       return res.status(404).json({ message: "Vendor not found" });
     }
 
-    // Check authorization
-    if (vendor.projectManagerId.toString() !== req.user.id) {
-      return res.status(403).json({ message: "Unauthorized" });
+    // Authorization - check clientId AND projectManagerId
+    if (String(vendor.clientId) !== String(req.user.clientId)) {
+      return res.status(403).json({ message: "Forbidden: Different client" });
+    }
+
+    if (String(vendor.projectManagerId) !== String(req.user.id)) {
+      return res.status(403).json({ message: "Forbidden: Not your vendor" });
+    }
+
+    // Check email uniqueness (only if email is being changed)
+    if (email && email !== vendor.email) {
+      const existingVendor = await Vendor.findOne({ 
+        email, 
+        clientId: req.user.clientId,
+        _id: { $ne: id }  // Exclude current vendor
+      });
+      
+      if (existingVendor) {
+        return res.status(400).json({ message: "Vendor with this email already exists" });
+      }
+    }
+
+    // Update vendor
+    const updatedVendor = await Vendor.findByIdAndUpdate(
+      id,
+      {
+        name: name || vendor.name,
+        email: email || vendor.email,
+        phone: phone || vendor.phone,
+        address: address || vendor.address,
+        assignedSites: assignedSites || vendor.assignedSites
+      },
+      { new: true, runValidators: true }
+    ).populate('assignedSites', 'name')
+     .populate('projectManagerId', 'name email');
+
+    res.json(updatedVendor);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error updating vendor", error: err.message });
+  }
+};
+
+// TOGGLE VENDOR STATUS (FIXED)
+export const toggleVendorStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid vendor ID" });
+    }
+
+    const vendor = await Vendor.findById(id);
+    if (!vendor) {
+      return res.status(404).json({ message: "Vendor not found" });
+    }
+
+    // Authorization - check clientId AND projectManagerId
+    if (String(vendor.clientId) !== String(req.user.clientId)) {
+      return res.status(403).json({ message: "Forbidden: Different client" });
+    }
+
+    if (String(vendor.projectManagerId) !== String(req.user.id)) {
+      return res.status(403).json({ message: "Forbidden: Not your vendor" });
     }
 
     vendor.isActive = !vendor.isActive;
@@ -629,16 +665,27 @@ export const toggleVendorStatus = async (req, res) => {
   }
 };
 
-// DELETE VENDOR
+// DELETE VENDOR (FIXED)
 export const deleteVendor = async (req, res) => {
   try {
-    const vendor = await Vendor.findById(req.params.id);
+    const { id } = req.params;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid vendor ID" });
+    }
+
+    const vendor = await Vendor.findById(id);
     if (!vendor) {
       return res.status(404).json({ message: "Vendor not found" });
     }
 
-    if (vendor.projectManagerId.toString() !== req.user.id) {
-      return res.status(403).json({ message: "Unauthorized" });
+    // Authorization - check clientId AND projectManagerId
+    if (String(vendor.clientId) !== String(req.user.clientId)) {
+      return res.status(403).json({ message: "Forbidden: Different client" });
+    }
+
+    if (String(vendor.projectManagerId) !== String(req.user.id)) {
+      return res.status(403).json({ message: "Forbidden: Not your vendor" });
     }
 
     await vendor.deleteOne();

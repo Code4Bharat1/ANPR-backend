@@ -859,3 +859,34 @@ export const exportAnalyticsReport = async (req, res, next) => {
     next(err);
   }
 };
+// backend controller (supervisorController.js)
+export const getSupervisorVendors = async (req, res) => {
+  try {
+    // Get sites assigned to supervisor
+    const assignedSites = await Site.find({ 
+      assignedSupervisors: req.user.id 
+    }).select('_id');
+    
+    const siteIds = assignedSites.map(site => site._id);
+    
+    // Get vendors assigned to these sites
+    const vendors = await Vendor.find({
+      assignedSites: { $in: siteIds },
+      isActive: true
+    })
+    .select('name email phone address')
+    .sort({ name: 1 });
+    
+    res.json({
+      success: true,
+      data: vendors
+    });
+  } catch (error) {
+    console.error('Error fetching supervisor vendors:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch vendors',
+      error: error.message 
+    });
+  }
+};
