@@ -105,8 +105,13 @@ export const dashboardOverview = async (req, res, next) => {
 };
 
 /* ======================================================
-   ANALYTICS
+   ANALYTICS - FIXED VERSION
 ====================================================== */
+
+/* ======================================================
+   ANALYTICS - FIXED VERSION
+====================================================== */
+
 export const analyticsSummary = async (req, res, next) => {
   try {
     const period = req.query.period || "7d";
@@ -124,6 +129,7 @@ export const analyticsSummary = async (req, res, next) => {
       Device.countDocuments()
     ]);
 
+    // Fix: Get top clients with proper error handling for sites field
     const topClients = await Trip.aggregate([
       { $match: { createdAt: { $gte: from, $lte: to } } },
       { $group: { _id: "$clientId", trips: { $sum: 1 } } },
@@ -137,16 +143,48 @@ export const analyticsSummary = async (req, res, next) => {
           as: "client"
         }
       },
-      { $unwind: "$client" },
+      { $unwind: { path: "$client", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: "sites",
+          localField: "_id",
+          foreignField: "clientId",
+          as: "clientSites"
+        }
+      },
+      {
+        $lookup: {
+          from: "devices",
+          localField: "_id",
+          foreignField: "clientId",
+          as: "clientDevices"
+        }
+      },
       {
         $project: {
-          name: "$client.name",
+          name: { 
+            $cond: {
+              if: { $and: ["$client", "$client.name"] },
+              then: "$client.name",
+              else: "Unknown Client"
+            }
+          },
           trips: 1,
-          sites: { $size: "$client.sites" },
-          devices: 1
+          sites: { $size: "$clientSites" }, // Count from sites collection
+          devices: { $size: "$clientDevices" } // Count from devices collection
         }
       }
     ]);
+
+    // Calculate growth (simplified version)
+    const previousPeriod = getPreviousDateRange(period);
+    const previousTrips = await Trip.countDocuments({ 
+      createdAt: { $gte: previousPeriod.from, $lte: previousPeriod.to } 
+    });
+
+    const tripsGrowth = previousTrips > 0 
+      ? Math.round(((totalTrips - previousTrips) / previousTrips) * 100)
+      : totalTrips > 0 ? 100 : 0;
 
     res.json({
       totalTrips,
@@ -154,10 +192,16 @@ export const analyticsSummary = async (req, res, next) => {
       totalSites,
       totalDevices,
       totalRevenue: 0,
-      growth: { trips: 12, revenue: 8, clients: 0 },
-      topClients
+      growth: { 
+        trips: tripsGrowth, 
+        revenue: 0,
+        clients: 0 
+      },
+      topClients,
+      period: { from, to }
     });
   } catch (e) {
+    console.error('Analytics summary error:', e);
     next(e);
   }
 };
@@ -167,21 +211,30 @@ export const tripVolumeDaily = async (req, res, next) => {
     const period = req.query.period || "7d";
     const { from, to } = getDateRange(period);
 
-    const format = period === "today" ? "%H:00" : "%Y-%m-%d";
+    // Determine format based on period
+    let format;
+    if (period === "today") {
+      format = "%H:00";
+    } else if (period === "7d" || period === "30d") {
+      format = "%Y-%m-%d";
+    } else {
+      format = "%Y-%m-%d"; // Default for longer periods
+    }
 
     const data = await Trip.aggregate([
       { $match: { createdAt: { $gte: from, $lte: to } } },
       {
         $group: {
-          _id: { $dateToString: { format, date: "$createdAt" } },
+          _id: { $dateToString: { format, date: "$createdAt", timezone: "Asia/Kolkata" } },
           count: { $sum: 1 }
         }
       },
       { $sort: { _id: 1 } }
     ]);
 
-    res.json(data.map(d => ({ date: d._id, trips: d.count })));
+    res.json(data.map(d => ({ date: d._id, trips: d.count || 0 })));
   } catch (e) {
+    console.error('Trip volume error:', e);
     next(e);
   }
 };
@@ -193,18 +246,27 @@ export const clientDistribution = async (req, res, next) => {
 
     const dist = await Client.aggregate([
       { $match: { createdAt: { $gte: from, $lte: to } } },
-      { $group: { _id: "$packageType", count: { $sum: 1 } } }
+      { 
+        $group: { 
+          _id: { 
+            $ifNull: ["$packageType", "Not Specified"] 
+          }, 
+          count: { $sum: 1 } 
+        } 
+      }
     ]);
 
     const total = dist.reduce((a, b) => a + b.count, 0) || 1;
 
     res.json(
       dist.map(d => ({
-        label: d._id || "Others",
+        label: d._id,
+        count: d.count,
         percent: Math.round((d.count / total) * 100)
       }))
     );
   } catch (e) {
+    console.error('Client distribution error:', e);
     next(e);
   }
 };
@@ -217,29 +279,88 @@ const getDateRange = (period = "7d") => {
     case "today":
       from.setHours(0, 0, 0, 0);
       break;
-
     case "7d":
       from.setDate(now.getDate() - 7);
       break;
-
     case "30d":
       from.setDate(now.getDate() - 30);
       break;
-
     case "90d":
       from.setDate(now.getDate() - 90);
       break;
-
     case "month":
       from = new Date(now.getFullYear(), now.getMonth(), 1);
       break;
-
     default:
       from.setDate(now.getDate() - 7);
   }
 
   return { from, to: now };
 };
+
+// Helper function for previous period comparison
+const getPreviousDateRange = (period = "7d") => {
+  const now = new Date();
+  let from = new Date();
+  let to = new Date();
+
+  switch (period) {
+    case "today":
+      from.setDate(now.getDate() - 1);
+      from.setHours(0, 0, 0, 0);
+      to.setDate(now.getDate() - 1);
+      to.setHours(23, 59, 59, 999);
+      break;
+    case "7d":
+      from.setDate(now.getDate() - 14);
+      to.setDate(now.getDate() - 7);
+      break;
+    case "30d":
+      from.setDate(now.getDate() - 60);
+      to.setDate(now.getDate() - 30);
+      break;
+    case "90d":
+      from.setDate(now.getDate() - 180);
+      to.setDate(now.getDate() - 90);
+      break;
+    default:
+      from.setDate(now.getDate() - 14);
+      to.setDate(now.getDate() - 7);
+  }
+
+  return { from, to };
+};
+// Add revenue analytics endpoint
+export const revenueAnalytics = async (req, res, next) => {
+  try {
+    const period = req.query.period || "7d";
+    const { from, to } = getDateRange(period);
+
+    const revenueData = await Trip.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+          revenue: { $sum: "$amount" },
+          trips: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    res.json(revenueData.map(d => ({ 
+      date: d._id, 
+      revenue: d.revenue || 0,
+      trips: d.trips 
+    })));
+  } catch (e) {
+    next(e);
+  }
+};
+
+
+
+
 
 /* ======================================================
    AUDIT LOGS

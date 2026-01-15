@@ -9,12 +9,11 @@ const router = express.Router();
 const guard = [verifyAccessToken, authorizeRoles("superadmin")];
 
 router.get("/dashboard", ...guard, SA.dashboardOverview);
-
 // Analytics
 router.get("/analytics/summary", ...guard, SA.analyticsSummary);
 router.get("/analytics/trips", ...guard, SA.tripVolumeDaily);
 router.get("/analytics/clients", ...guard, SA.clientDistribution);
-
+router.get("/analytics/revenue", ...guard, SA.revenueAnalytics); // Add this
 // Audit
 router.get("/audit-logs", ...guard, SA.getAuditLogs);
 
