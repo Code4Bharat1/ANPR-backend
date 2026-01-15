@@ -730,7 +730,7 @@ export const getMyAssignedSite = async (req, res, next) => {
 
     const site = await Site.findById(siteId)
       .populate("clientId", "name email")
-      .populate("projectId", "name");
+      
 
     if (!site) {
       return res.status(404).json({

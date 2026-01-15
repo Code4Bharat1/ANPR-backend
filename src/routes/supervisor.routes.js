@@ -89,14 +89,15 @@ router.post(
   "/vehicles/entry",
   verifyAccessToken,
   authorizeRoles("supervisor"),
-  getActiveTrips
+  createManualTrip  // यह सही controller है
 );
 
-router.post(
-  "/trips/manual",
+// और GET endpoint अलग से बनाएं
+router.get(
+  "/vehicles/active",
   verifyAccessToken,
   authorizeRoles("supervisor"),
-  createManualTrip
+  getActiveTrips
 );
 
 router.get(
