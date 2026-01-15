@@ -25,11 +25,11 @@
 
   } from "../controllers/client.controller.js";
 import { checkUserLimit } from "../middlewares/checkUserLimit.middleware.js";
-import { createClientSite,  deleteClientSite,   getSitesByClient, updateClientSite,  } from "../controllers/site.controller.js";
+import { createClientSite,  deleteClientSite,   getClientSites,  updateClientSite,  } from "../controllers/site.controller.js";
 import { createSupervisor, getSupervisors, updateSupervisor } from "../controllers/supervisor.controller.js";
 import { getDevices } from "../controllers/device.controller.js";
 // In client.routes.js
-import { summary, siteWise, exportReportsToExcel, getReports, getTripReports, getReportStats } from "../controllers/report.controller.js";
+import { summary, siteWise, exportReportsToExcel, getReports, getTripReports, getReportStats, exportReports } from "../controllers/report.controller.js";
 const router = express.Router();
   /**
    * @route   POST /api/clients
@@ -149,7 +149,7 @@ const router = express.Router();
     "/sites",
     verifyAccessToken,
     authorizeRoles("client", "admin",),
-    getSitesByClient
+    getClientSites
   );
   // ✅ UPDATE SITE
   router.put(
@@ -172,28 +172,34 @@ const router = express.Router();
     authorizeRoles("client", "admin"),
     getDevices);
 
-
- // Reports routes
+// Reports routes for Client Admin
 router.get(
   "/reports", 
   verifyAccessToken,
   authorizeRoles("client", "admin"),
-  getReports
+  getReports // Client admin reports
 );
 
 router.get(
   "/reports/export", 
   verifyAccessToken,
   authorizeRoles("client", "admin"),
-  exportReportsToExcel // Changed from exportReports
+  exportReports // Client admin export (ExcelJS)
 );
 
-// Trip reports routes
+// Trip reports routes for Project Manager
 router.get(
   "/trips/reports",
   verifyAccessToken,
   authorizeRoles("client", "admin", "project_manager"),
   getTripReports
+);
+
+router.get(
+  "/trips/export", // ✅ Changed endpoint to avoid conflict
+  verifyAccessToken,
+  authorizeRoles("client", "admin", "project_manager"),
+  exportReportsToExcel // Project manager export (XLSX)
 );
 
 router.get(

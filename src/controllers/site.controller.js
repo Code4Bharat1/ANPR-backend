@@ -94,6 +94,8 @@ export const getClientSites = async (req, res, next) => {
  */
 export const updateClientSite = async (req, res, next) => {
   try {
+    console.log('🔄 UPDATE SITE REQUEST BODY:', JSON.stringify(req.body, null, 2));
+
     const { id } = req.params;
     const { gates } = req.body;
 
@@ -113,13 +115,26 @@ export const updateClientSite = async (req, res, next) => {
       });
     }
 
-    // 🛡️ Gate validation
-    if (gates) {
-      const cleanedGates = Array.isArray(gates)
-        ? gates.filter(
-            gate => gate?.gateName && gate.gateName.trim() !== ""
-          )
-        : [];
+    // 🛡️ Gate validation and transformation
+    let cleanedGates = [];
+    if (gates && Array.isArray(gates)) {
+      console.log('🚪 Processing gates:', gates);
+      
+      cleanedGates = gates
+        .filter(gate => {
+          // Accept either gateName or name field
+          const name = gate?.gateName || gate?.name;
+          return name && name.trim() !== "";
+        })
+        .map(gate => ({
+          // Convert name to gateName if needed
+          gateName: gate.gateName || gate.name,
+          isMainGate: gate.isMainGate || false,
+          isActive: gate.isActive !== undefined ? gate.isActive : true,
+          gateCode: gate.gateCode || undefined
+        }));
+      
+      console.log('🚪 Transformed gates:', cleanedGates);
       
       const mainGateCount = cleanedGates.filter(g => g.isMainGate).length;
       if (mainGateCount > 1) {
@@ -130,18 +145,31 @@ export const updateClientSite = async (req, res, next) => {
     }
 
     const oldValue = site.toObject();
+    
+    // Prepare update data with transformed gates
+    const updateData = {
+      ...req.body,
+      updatedBy: req.user.id,
+      updatedAt: new Date(),
+    };
+    
+    // Only include gates if we have cleaned gates
+    if (cleanedGates.length > 0) {
+      updateData.gates = cleanedGates;
+    }
+
+    console.log('📝 Final update data:', updateData);
+
     const updatedSite = await Site.findByIdAndUpdate(
       id,
-      {
-        ...req.body,
-        updatedBy: req.user.id,
-        updatedAt: new Date(),
-      },
+      updateData,
       {
         new: true,
         runValidators: true,
       }
     );
+
+    console.log('✅ Site updated successfully');
 
     await logAudit({ 
       req, 
@@ -156,6 +184,18 @@ export const updateClientSite = async (req, res, next) => {
       data: updatedSite,
     });
   } catch (err) {
+    console.error('❌ Update Site Error:', err);
+    console.error('❌ Validation Errors:', err.errors);
+    
+    // Check for validation errors
+    if (err.name === 'ValidationError') {
+      const errors = Object.values(err.errors).map(e => e.message);
+      return res.status(400).json({
+        message: "Validation failed",
+        errors: errors
+      });
+    }
+    
     next(err);
   }
 };

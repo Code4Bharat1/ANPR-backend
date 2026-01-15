@@ -2,6 +2,10 @@ import mongoose from "mongoose";
 
 const deviceSchema = new mongoose.Schema(
   {
+    deviceName: {
+      type: String,
+      required: true
+    },
     // Client association
     clientId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -22,7 +26,7 @@ const deviceSchema = new mongoose.Schema(
       enum: ["ANPR", "BARRIER", "BIOMETRIC"],
     },
 
-
+    
     // Serial number for the device (must be unique)
     serialNo: {
       type: String,
