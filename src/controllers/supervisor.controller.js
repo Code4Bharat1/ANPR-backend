@@ -3,6 +3,7 @@ import Supervisor from "../models/supervisor.model.js";
 import ProjectManager from "../models/ProjectManager.model.js"; // Added missing import
 import Trip from "../models/Trip.model.js";
 import Site from "../models/Site.model.js";
+import Vendor from "../models/Vendor.model.js";
 import Vehicle from "../models/Vehicle.model.js";
 import { hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
