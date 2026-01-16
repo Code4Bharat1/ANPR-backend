@@ -127,7 +127,6 @@ export const toggleClient = async (req, res, next) => {
 /* ======================================================
     GET CLIENT DASHBOARD  
 ====================================================== */
-
 export const getClientDashboard = async (req, res, next) => {
   try {
     const clientId = req.user.clientId;
@@ -162,7 +161,8 @@ export const getClientDashboard = async (req, res, next) => {
 
       Client.findById(clientId).lean(),
 
-      Device.find({ clientId }).select("devicetype isEnabled").lean()
+      // ✅ isOnline भी select करें
+      Device.find({ clientId }).select("devicetype isEnabled isOnline").lean()
     ]);
 
     // ✅ Get limits from PLANS config based on packageType
@@ -176,8 +176,15 @@ export const getClientDashboard = async (req, res, next) => {
     };
 
     const totalDevices = devices.length;
-    const activeDevices = devices.filter(d => d.isEnabled).length;
-    const inactiveDevices = totalDevices - activeDevices;
+    
+    // ✅ सही गणना: isOnline = true वाले devices को active मानें
+    const activeDevices = devices.filter(d => d.isOnline === true).length;
+    
+    // ✅ Offline devices की सही गणना
+    const offlineDevices = devices.filter(d => d.isOnline === false).length;
+    
+    // ✅ Disabled devices (isEnabled = false) अलग से
+    const disabledDevices = devices.filter(d => d.isEnabled === false).length;
 
     // 🕒 Recent activity
     const recentActivity = await Trip.find({ clientId })
@@ -211,7 +218,7 @@ export const getClientDashboard = async (req, res, next) => {
       },
 
       /* =========================
-         EXISTING DASHBOARD DATA
+         EXISTING DASHबोर्ड DATA
       ========================= */
       totalSites,
       totalProjectManagers: projectManagers,
@@ -220,7 +227,9 @@ export const getClientDashboard = async (req, res, next) => {
 
       totalDevices,
       activeDevices,
-      inactiveDevices,
+      offlineDevices, // ✅ नया field
+      disabledDevices, // ✅ नया field (optional)
+      inactiveDevices: offlineDevices, // ✅ backward compatibility के लिए
 
       todayEntries,
       todayExits,
@@ -238,7 +247,6 @@ export const getClientDashboard = async (req, res, next) => {
     next(err);
   }
 };
-
 export const createProjectManager = async (req, res, next) => {
   try {
     const { name, email, mobile, password, assignedSites } = req.body;
