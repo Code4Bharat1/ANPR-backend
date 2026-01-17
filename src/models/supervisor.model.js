@@ -29,20 +29,43 @@ const schema = new mongoose.Schema(
     clientId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Client",
-      // required: true,
+    },
+    status: {
+      type: String,
+      enum: ["Active", "Inactive"],
+      default: "Active",
     },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }
 );
 
-/* 🔐 HASH PASSWORD */
+/* 🔐 HASH PASSWORD - CRITICAL FIX */
 schema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
+  // Only process if password was modified
+  if (!this.isModified("password")) {
+    return next();
+  }
+  
+  // Don't re-hash if already hashed
+  if (this.password && this.password.startsWith('$2')) {
+    return next();
+  }
+  
+  // Hash the plain password
   this.password = await bcrypt.hash(this.password, 10);
   next();
 });
 
-/* ✅ CORRECT MODEL NAME */
+/* ✅ SYNC STATUS AND isActive */
+schema.pre("save", function (next) {
+  if (this.isModified("status")) {
+    this.isActive = this.status === "Active";
+  } else if (this.isModified("isActive")) {
+    this.status = this.isActive ? "Active" : "Inactive";
+  }
+  next();
+});
+
 export default mongoose.models.Supervisor ||
   mongoose.model("Supervisor", schema);
