@@ -1,33 +1,25 @@
-import dotenv from "dotenv";
-dotenv.config(); // ⬅️ MUST BE AT TOP (before any import that uses env)
-
-import express from "express";
-import s3 from "../lib/wasabi.js";
+import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import s3Client from '../lib/wasabi.js';
 
 export async function getUploadUrl({ fileName, fileType }) {
   const key = `uploads/${Date.now()}-${fileName}`;
-
-  const params = {
+  
+  const command = new PutObjectCommand({
     Bucket: process.env.WASABI_BUCKET_NAME,
     Key: key,
     ContentType: fileType,
-    Expires: 60,
-  };
+  });
 
-  const uploadURL = await s3.getSignedUrlPromise(
-    "putObject",
-    params
-  );
-
+  const uploadURL = await getSignedUrl(s3Client, command, { expiresIn: 60 });
   return { uploadURL, fileKey: key };
 }
 
 export async function getDownloadUrl(key) {
-  const params = {
+  const command = new GetObjectCommand({
     Bucket: process.env.WASABI_BUCKET_NAME,
     Key: key,
-    Expires: 300,
-  };
+  });
 
-  return s3.getSignedUrlPromise("getObject", params);
+  return getSignedUrl(s3Client, command, { expiresIn: 300 });
 }

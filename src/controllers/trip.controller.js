@@ -5,6 +5,7 @@ import Site from "../models/Site.model.js";
 import { Parser } from "json2csv";
 import ExcelJS from "exceljs";
 import mongoose from "mongoose";
+import VendorModel from "../models/Vendor.model.js";
 
 /**
  * @desc   Get trip history with filters
