@@ -482,65 +482,53 @@ export const togglePMStatus = async (req, res, next) => {
     next(err);
   }
 };
-/**
- * TOGGLE SUPERVISOR STATUS
- */
 export const toggleSupervisor = async (req, res, next) => {
   try {
     const { status } = req.body;
     const { id } = req.params;
 
-    console.log('Toggle supervisor status called:', { 
-      id, 
-      status,
-      userId: req.user?.id,
-      clientId: req.user?.clientId 
-    });
-
-    if (!req.user || !req.user.clientId) {
+    if (!req.user?.clientId) {
       return res.status(401).json({ message: "Authentication failed" });
     }
 
-    const supervisor = await Supervisor.findOne({
-      _id: id,
-      clientId: req.user.clientId
-    });
+    const updatedSupervisor = await Supervisor.findOneAndUpdate(
+      { _id: id, clientId: req.user.clientId },
+      {
+        $set: {
+          status,
+          isActive: status === "Active",
+        },
+      },
+      {
+        new: true,
+        runValidators: false, // ✅ THIS IS THE KEY
+      }
+    );
 
-    if (!supervisor) {
-      return res.status(404).json({ 
-        message: "Supervisor not found or unauthorized" 
-      });
+    if (!updatedSupervisor) {
+      return res
+        .status(404)
+        .json({ message: "Supervisor not found or unauthorized" });
     }
-
-    // ✅ UPDATE BOTH FIELDS - THIS IS CRITICAL!
-    supervisor.status = status;
-    supervisor.isActive = status === 'Active'; // Sync the boolean field
-    
-    await supervisor.save();
-
-    console.log('Supervisor status updated:', {
-      id: supervisor._id,
-      name: supervisor.name,
-      status: supervisor.status,
-      isActive: supervisor.isActive
-    });
 
     res.json({
       success: true,
-      message: `Supervisor ${supervisor.isActive ? 'activated' : 'deactivated'} successfully`,
+      message: `Supervisor ${
+        updatedSupervisor.isActive ? "activated" : "deactivated"
+      } successfully`,
       data: {
-        _id: supervisor._id,
-        name: supervisor.name,
-        status: supervisor.status,
-        isActive: supervisor.isActive
-      }
+        _id: updatedSupervisor._id,
+        name: updatedSupervisor.name,
+        status: updatedSupervisor.status,
+        isActive: updatedSupervisor.isActive,
+      },
     });
-
   } catch (err) {
-    console.error('Toggle supervisor error:', err);
+    console.error("Toggle supervisor error:", err);
     next(err);
   }
 };
+
 
 // ============================================
 // CONTROLLERS (controllers/clientAdmin.js)

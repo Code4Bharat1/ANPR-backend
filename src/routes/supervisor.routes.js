@@ -15,7 +15,7 @@ import {
     getMyAssignedSite,
     getActiveVehicles
 } from "../controllers/supervisor.controller.js";
-import { createManualTrip, exportTripHistory, getActiveTrips, getTripHistory, updateTrip } from "../controllers/trip.controller.js";
+import { createManualTrip, createManualTripMobile, exitVehicle, exportTripHistory, getActiveTrips, getTripHistory } from "../controllers/trip.controller.js";
 
 const router = express.Router();
 
@@ -83,7 +83,7 @@ router.post(
   "/vehicles/exit",
   verifyAccessToken,
   authorizeRoles("supervisor"),
-  updateTrip
+  exitVehicle
 );
 router.post(
   "/vehicles/entry",
@@ -93,12 +93,12 @@ router.post(
 );
 
 // और GET endpoint अलग से बनाएं
-router.get(
-  "/vehicles/active",
-  verifyAccessToken,
-  authorizeRoles("supervisor"),
-  getActiveTrips
-);
+// router.get(
+//   "/vehicles/active",
+//   verifyAccessToken,
+//   authorizeRoles("supervisor"),
+//   getActiveTrips
+// );
 
 router.get(
   "/my-site",
@@ -116,6 +116,14 @@ router.get(
   authorizeRoles("supervisor"),
   exportAnalyticsReport
 );
+
+router.post(
+  "/mobile/trips/manual",
+  verifyAccessToken,
+  authorizeRoles("supervisor"),
+  createManualTripMobile
+);
+
 // backend routes (supervisorRoutes.js)
 router.get('/vendors', verifyAccessToken, authorizeRoles('supervisor'), getSupervisorVendors);
 

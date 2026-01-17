@@ -436,91 +436,219 @@ export const getTripById = async (req, res) => {
   }
 };
 
-/**
- * @desc   Update trip status or details
- * @route  PUT /api/trips/:id
- * @access Supervisor, PM, Admin
- */
-export const updateTrip = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const updates = req.body;
+// /**
+//  * @desc   Update trip status or details
+//  * @route  PUT /api/trips/:id
+//  * @access Supervisor, PM, Admin
+//  */
+// export const updateTrip = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const updates = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+//     if (!mongoose.Types.ObjectId.isValid(id)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid trip ID"
+//       });
+//     }
+
+//     const trip = await Trip.findById(id);
+//     if (!trip) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Trip not found"
+//       });
+//     }
+
+//     // Check authorization
+//     const userSiteId = req.user?.siteId?.toString();
+//     const tripSiteId = trip.siteId?.toString();
+
+//     if (req.user?.role !== 'admin') {
+//       if (userSiteId && tripSiteId && userSiteId !== tripSiteId) {
+//         return res.status(403).json({
+//           success: false,
+//           message: "Access denied"
+//         });
+//       }
+//     }
+
+//     // Allowed updates
+//     const allowedUpdates = [
+//       'status', 'purpose', 'loadStatus', 'notes', 
+//       'exitAt', 'exitGate', 'exitMedia', 'entryMedia'
+//     ];
+
+//     const updateData = {};
+//     allowedUpdates.forEach(field => {
+//       if (updates[field] !== undefined) {
+//         updateData[field] = updates[field];
+//       }
+//     });
+
+//     // If marking as exited, update vehicle status
+//     if (updates.status === 'EXITED' && !trip.exitAt) {
+//       updateData.exitAt = updates.exitAt || new Date();
+      
+//       // Update vehicle status
+//       await Vehicle.findByIdAndUpdate(trip.vehicleId, {
+//         isInside: false,
+//         lastExitAt: updateData.exitAt
+//       });
+//     }
+
+//     const updatedTrip = await Trip.findByIdAndUpdate(
+//       id,
+//       updateData,
+//       { new: true, runValidators: true }
+//     )
+//       .populate('vendorId', 'name')
+//       .populate('vehicleId', 'vehicleNumber')
+//       .lean();
+
+//     res.json({
+//       success: true,
+//       message: "Trip updated successfully",
+//       data: updatedTrip
+//     });
+//   } catch (error) {
+//     console.error('❌ Error updating trip:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Failed to update trip",
+//       error: process.env.NODE_ENV === 'development' ? error.message : undefined
+//     });
+//   }
+// };
+/**
+ * @desc   Exit vehicle (close active trip)
+ * @route  POST /api/supervisor/vehicles/exit
+ * @access Supervisor
+ */
+export const exitVehicle = async (req, res) => {
+  try {
+    const { vehicleId, exitTime, exitMedia, exitNotes } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(vehicleId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid trip ID"
+        message: "Invalid vehicleId",
       });
     }
 
-    const trip = await Trip.findById(id);
-    if (!trip) {
-      return res.status(404).json({
-        success: false,
-        message: "Trip not found"
-      });
-    }
+    const vehicle = await Vehicle.findById(vehicleId);
 
-    // Check authorization
-    const userSiteId = req.user?.siteId?.toString();
-    const tripSiteId = trip.siteId?.toString();
+    if (!vehicle) {
+  return res.status(404).json({
+    success: false,
+    message: "Vehicle not found",
+  });
+}
 
-    if (req.user?.role !== 'admin') {
-      if (userSiteId && tripSiteId && userSiteId !== tripSiteId) {
-        return res.status(403).json({
-          success: false,
-          message: "Access denied"
-        });
-      }
-    }
+if (!vehicle.isInside) {
+  return res.json({
+    success: true,
+    message: "Vehicle already exited",
+    data: {
+      vehicleId,
+      exitedAt: vehicle.lastExitAt,
+    },
+  });
+}
 
-    // Allowed updates
-    const allowedUpdates = [
-      'status', 'purpose', 'loadStatus', 'notes', 
-      'exitAt', 'exitGate', 'exitMedia', 'entryMedia'
-    ];
 
-    const updateData = {};
-    allowedUpdates.forEach(field => {
-      if (updates[field] !== undefined) {
-        updateData[field] = updates[field];
-      }
-    });
+    const trip = await Trip.findOne({
+      vehicleId,
+      status: { $ne: "EXITED" },
+    }).sort({ entryAt: -1 });
 
-    // If marking as exited, update vehicle status
-    if (updates.status === 'EXITED' && !trip.exitAt) {
-      updateData.exitAt = updates.exitAt || new Date();
-      
-      // Update vehicle status
-      await Vehicle.findByIdAndUpdate(trip.vehicleId, {
-        isInside: false,
-        lastExitAt: updateData.exitAt
-      });
-    }
+   if (!trip) {
+  console.warn("⚠️ Recovering missing trip for vehicle:", vehicleId);
 
-    const updatedTrip = await Trip.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    )
-      .populate('vendorId', 'name')
-      .populate('vehicleId', 'vehicleNumber')
-      .lean();
+  const recoveredTrip = await Trip.create({
+    clientId: vehicle.clientId,
+    siteId: vehicle.siteId,
+    vendorId: vehicle.vendorId,
+    vehicleId: vehicle._id,
+    plateText: vehicle.vehicleNumber,
+    entryAt: vehicle.lastEntryAt || new Date(),
+    entryGate: "Recovered Entry",
+    entryMedia: { photos: [] },
+    status: "INSIDE",
+    createdBy: req.user._id,
+  });
 
-    res.json({
+  const exitAt = exitTime ? new Date(exitTime) : new Date();
+
+  const formattedExitMedia = {
+    photos: exitMedia?.photos
+      ? Object.values(exitMedia.photos)
+      : [],
+    video: exitMedia?.video || "",
+  };
+
+  recoveredTrip.status = "EXITED";
+  recoveredTrip.exitAt = exitAt;
+  recoveredTrip.exitGate = "Manual Exit (Recovered)";
+  recoveredTrip.exitMedia = formattedExitMedia;
+  recoveredTrip.notes = exitNotes || "";
+  await recoveredTrip.save();
+
+  vehicle.isInside = false;
+  vehicle.lastExitAt = exitAt;
+  await vehicle.save();
+
+  return res.json({
+    success: true,
+    message: "Vehicle exited successfully (recovered)",
+    data: {
+      tripId: recoveredTrip.tripId,
+      exitAt,
+    },
+  });
+}
+
+
+    const exitAt = exitTime ? new Date(exitTime) : new Date();
+
+    const formattedExitMedia = {
+      photos: exitMedia?.photos
+        ? Object.values(exitMedia.photos)
+        : [],
+      video: exitMedia?.video || "",
+    };
+
+    trip.status = "EXITED";
+    trip.exitAt = exitAt;
+    trip.exitGate = "Manual Exit";
+    trip.exitMedia = formattedExitMedia;
+    trip.notes = exitNotes || trip.notes;
+
+    await trip.save();
+
+    vehicle.isInside = false;
+    vehicle.lastExitAt = exitAt;
+    await vehicle.save();
+
+    return res.json({
       success: true,
-      message: "Trip updated successfully",
-      data: updatedTrip
+      message: "Vehicle exited successfully",
+      data: {
+        tripId: trip.tripId,
+        exitAt,
+      },
     });
+
   } catch (error) {
-    console.error('❌ Error updating trip:', error);
+    console.error("❌ Exit error:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to update trip",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Exit failed",
     });
   }
 };
+
 
 /**
  * @desc   Create manual trip entry
@@ -642,6 +770,136 @@ export const createManualTrip = async (req, res) => {
     });
   }
 };
+
+
+/**
+ * @desc   Create manual trip entry (Mobile)
+ * @route  POST /api/mobile/trips/manual
+ * @access Guard, Supervisor
+ */
+export const createManualTripMobile = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { siteId, clientId } = req.user;
+
+    if (!siteId || !clientId) {
+      return res.status(403).json({
+        success: false,
+        message: "User not assigned to site or client",
+      });
+    }
+
+    const {
+      vehicleNumber,
+      vehicleType,
+      driverName,
+      driverPhone,
+      vendorId,
+      entryTime,
+      purpose,
+      loadStatus,
+      entryGate,
+      notes,
+      media,
+    } = req.body;
+
+    if (!vehicleNumber || !vendorId) {
+      return res.status(400).json({
+        success: false,
+        message: "vehicleNumber and vendorId are required",
+      });
+    }
+
+  
+
+    const normalizedVehicleNumber = vehicleNumber.toUpperCase();
+
+    // Find existing vehicle
+    let vehicle = await Vehicle.findOne({
+      vehicleNumber: normalizedVehicleNumber,
+      siteId,
+    });
+
+    if (vehicle?.isInside) {
+      return res.status(409).json({
+        success: false,
+        message: "Vehicle is already inside the site",
+      });
+    }
+
+    // Create or update vehicle
+    if (!vehicle) {
+      vehicle = await Vehicle.create({
+        vehicleNumber: normalizedVehicleNumber,
+        vehicleType: vehicleType || "TRUCK",
+        driverName: driverName || "",
+        driverPhone: driverPhone || "",
+        vendorId,
+        siteId,
+        clientId,
+        isInside: true,
+        lastEntryAt: entryTime ? new Date(entryTime) : new Date(),
+        createdBy: userId,
+      });
+    } else {
+      vehicle.driverName = driverName || vehicle.driverName;
+      vehicle.driverPhone = driverPhone || vehicle.driverPhone;
+      vehicle.vehicleType = vehicleType || vehicle.vehicleType;
+      vehicle.vendorId = vendorId;
+      vehicle.isInside = true;
+      vehicle.lastEntryAt = entryTime ? new Date(entryTime) : new Date();
+      await vehicle.save();
+    }
+
+    // Fetch site for PM assignment
+    const site = await Site.findById(siteId);
+
+    // Create trip
+    const trip = await Trip.create({
+      clientId,
+      siteId,
+      vehicleId: vehicle._id,
+      vendorId,
+      supervisorId: userId,
+      projectManagerId: site?.projectManagerId || clientId,
+      plateText: normalizedVehicleNumber,
+      driverName: driverName || "",
+      entryAt: entryTime ? new Date(entryTime) : new Date(),
+      entryGate: entryGate || "Mobile Manual Entry",
+      status: "INSIDE",
+      purpose: purpose || "Manual Entry",
+      loadStatus: loadStatus || "FULL",
+      entryMedia: {
+        anprImage: media?.anprImage || "",
+        photos: media?.photos || [],
+        video: media?.video || "",
+        challanImage: media?.challanImage || "",
+      },
+      notes: notes || "",
+      createdBy: userId,
+      source: "MOBILE",
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Manual trip entry created successfully (mobile)",
+      data: {
+        tripId: trip.tripId,
+        vehicleId: vehicle._id,
+        entryAt: trip.entryAt,
+      },
+    });
+
+  } catch (error) {
+    console.error("❌ Mobile manual trip error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create manual trip entry",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
 
 /**
  * @desc   Export trip history
