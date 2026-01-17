@@ -30,7 +30,7 @@ const tripSchema = new mongoose.Schema(
     vendorId: { 
       type: mongoose.Schema.Types.ObjectId, 
       ref: "Vendor", 
-      required: true 
+      required: false 
     },
     vehicleId: {
       type: mongoose.Schema.Types.ObjectId,

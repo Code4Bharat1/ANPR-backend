@@ -409,7 +409,64 @@ export const createSupervisor = async (req, res) => {
     });
   }
 };
+// Add this to your backend supervisor routes
+export const updateSupervisor = async (req, res) => {
+  try {
+    const { name, email, mobile, address, siteId, password } = req.body;
+    const supervisorId = req.params.id;
+    const pmId = req.user.id;
 
+    // Find the supervisor
+    const supervisor = await supervisorModel.findById(supervisorId);
+    
+    if (!supervisor) {
+      return res.status(404).json({ message: "Supervisor not found" });
+    }
+
+    // Verify the supervisor belongs to this project manager
+    if (supervisor.projectManagerId.toString() !== pmId) {
+      return res.status(403).json({ 
+        message: "You are not authorized to update this supervisor" 
+      });
+    }
+
+    // If changing site, validate the new site belongs to PM
+    if (siteId && siteId !== supervisor.siteId.toString()) {
+      const pm = await ProjectManager.findById(pmId).select("assignedSites").lean();
+      
+      if (!pm?.assignedSites?.some(id => id.toString() === siteId)) {
+        return res.status(403).json({
+          message: "You cannot assign supervisor to this site",
+        });
+      }
+      supervisor.siteId = siteId;
+    }
+
+    // Update other fields
+    if (name) supervisor.name = name;
+    if (email) supervisor.email = email;
+    if (mobile) supervisor.mobile = mobile;
+    if (address) supervisor.address = address;
+    if (password) supervisor.password = password;
+
+    await supervisor.save();
+
+    // Populate site information
+    await supervisor.populate("siteId", "name");
+
+    return res.status(200).json({
+      message: "Supervisor updated successfully",
+      data: supervisor,
+    });
+
+  } catch (err) {
+    console.error("Update Supervisor Error:", err);
+    res.status(500).json({
+      message: "Error updating supervisor",
+      error: err.message,
+    });
+  }
+};
 
 export const getAllSupervisors = async (req, res) => {
   try {

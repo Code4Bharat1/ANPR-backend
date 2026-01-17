@@ -24,6 +24,7 @@ import {
   getProfileStats,
   getSettings,
   updateSettings,
+  updateSupervisor,
   
 } from '../controllers/projectManager.controller.js';
 import { updateVendor } from '../controllers/vendor.controller.js';
@@ -65,7 +66,8 @@ router.patch(
 router.get('/dashboard/stats', verifyAccessToken, authorizeRoles('project_manager'), getDashboardStats);
 
 // Site routes
-router.get("/sites",verifyAccessToken, authorizeRoles('project_manager'), getMySites);
+// 在你的路由文件中
+router.get('/my-sites', verifyAccessToken, authorizeRoles('project_manager'), getMySites);
 router.get("/sites/:id", verifyAccessToken, authorizeRoles('project_manager'), getPMSiteDetails);
 router.get("/sites/:id/traffic",verifyAccessToken, authorizeRoles('project_manager'), getSiteTraffic);
 router.get("/sites/:id/activity",verifyAccessToken, authorizeRoles('project_manager'), getSiteActivity);
@@ -88,9 +90,10 @@ router.put("/vehicles/status",verifyAccessToken, authorizeRoles('project_manager
 router.post("/vehicles/add",verifyAccessToken, authorizeRoles('project_manager'), addVehicleToSite);
 router.post("/vehicles/remove",verifyAccessToken, authorizeRoles('project_manager'), removeVehicleFromSite);
 
-// Supervisor routes
-router.post('/supervisors', verifyAccessToken, authorizeRoles('project_manager'), createSupervisor);
-router.get('/supervisors', verifyAccessToken, authorizeRoles('project_manager'), getAllSupervisors);
+// Fix your router file - make all routes consistent
+router.post('/supervisors', verifyAccessToken, authorizeRoles('project_manager'),  createSupervisor);
+router.get('/supervisors', verifyAccessToken, authorizeRoles('project_manager','admin','Client'), getAllSupervisors);
+router.put('/supervisors/:id', verifyAccessToken, authorizeRoles('project_manager'), updateSupervisor); // FIXED PATH
 router.patch('/supervisors/:id/assign-site', verifyAccessToken, authorizeRoles('project_manager'), assignSiteToSupervisor);
 router.patch('/supervisors/:id/enable-disable', verifyAccessToken, authorizeRoles('project_manager'), toggleSupervisorStatus);
 

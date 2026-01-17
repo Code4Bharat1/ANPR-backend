@@ -9,6 +9,7 @@ import { hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 import { Parser } from "json2csv";
 import ExcelJS from "exceljs";
+import ClientModel from "../models/Client.model.js";
 import mongoose from "mongoose";
 
 /**
@@ -101,18 +102,32 @@ export const createSupervisor = async (req, res, next) => {
 };
 
 /**
- * GET ALL SUPERVISORS (Client Admin)
+ * GET ALL SUPERVISORS
+ * - Admin: all supervisors of client
+ * - Client: all supervisors of client
+ * - Project Manager: only assigned supervisors
  */
-export const getSupervisors = async (req, res, next) => {
+export const getAllSupervisors = async (req, res, next) => {
   try {
-    // 🔐 Safety checks
-    if (!req.user || !req.user.clientId) {
+    if (!req.user) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const clientId = req.user.clientId;
+    const { role, clientId, id } = req.user;
 
-    const supervisors = await Supervisor.find({ clientId })
+    let filter = {};
+
+    if (role === "admin" || role === "client") {
+      // ✅ Admin & Client see all supervisors of their client
+      filter.clientId = clientId;
+    } else if (role === "project_manager") {
+      // ✅ PM sees only assigned supervisors
+      filter.projectManagerId = id;
+    } else {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const supervisors = await Supervisor.find(filter)
       .populate("siteId", "name location")
       .populate("projectManagerId", "name email")
       .select("-password")
@@ -126,6 +141,7 @@ export const getSupervisors = async (req, res, next) => {
     next(err);
   }
 };
+
 
 /**
  * UPDATE SUPERVISOR (Client / Admin)

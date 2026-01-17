@@ -3,10 +3,10 @@ import express from "express";
 import { verifyAccessToken } from "../middlewares/auth.middleware.js";
 import { authorizeRoles } from "../middlewares/role.middleware.js";
 // Add this import at the top
-import { exportAnalyticsReport, getSupervisorVendors } from "../controllers/supervisor.controller.js";
+import { exportAnalyticsReport, getAllSupervisors, getSupervisorVendors } from "../controllers/supervisor.controller.js";
 import {
     createSupervisor,
-    getSupervisors,
+  
     assignSite,
     toggleSupervisor,
     supervisorDashboard,
@@ -30,7 +30,7 @@ router.get(
     "/",
     verifyAccessToken,
     authorizeRoles("project_manager"),
-    getSupervisors
+    getAllSupervisors
 );
 
 router.patch(

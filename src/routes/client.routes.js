@@ -26,7 +26,7 @@
   } from "../controllers/client.controller.js";
 import { checkUserLimit } from "../middlewares/checkUserLimit.middleware.js";
 import { createClientSite,  deleteClientSite,   getClientSites,  updateClientSite,  } from "../controllers/site.controller.js";
-import { createSupervisor, getSupervisors, updateSupervisor } from "../controllers/supervisor.controller.js";
+import { createSupervisor, getAllSupervisors,  updateSupervisor } from "../controllers/supervisor.controller.js";
 import { getDevices } from "../controllers/device.controller.js";
 import { exportReports, exportReportsToExcelPM, getReports, getReportStatsPM, getTripReportsPM, siteWise, summary } from "../controllers/report.controller.js";
 // In client.routes.js
@@ -112,7 +112,7 @@ const router = express.Router();
     authorizeRoles("client", "admin"), checkUserLimit("supervisor"), createSupervisor);
 
   router.get("/supervisors", verifyAccessToken,                    // 🔥 MUST
-    authorizeRoles("client", "admin"), getSupervisors);
+    authorizeRoles("client", "admin"), getAllSupervisors);
 
   router.put(
     "/supervisor/:id",
