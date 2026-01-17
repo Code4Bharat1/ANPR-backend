@@ -21,25 +21,26 @@ const ROLE_MODEL_MAP = {
 /* ======================================================
    LOGIN (EMAIL OR PHONE)
 ====================================================== */
-/* ======================================================
-   LOGIN (EMAIL OR PHONE)
-====================================================== */
 export const login = async (req, res, next) => {
   try {
     const { identifier, password } = req.body;
 
+    // ✅ Validation
     if (!identifier || !password) {
       return res.status(400).json({
         message: "Email/Phone and password are required",
       });
     }
 
-    // Normalize identifier
+    // ✅ Normalize identifier
     const isEmail = identifier.includes("@");
     const query = isEmail
       ? { email: identifier.toLowerCase().trim() }
       : { mobile: identifier.trim() };
 
+    console.log('🔍 Login attempt:', { identifier, isEmail, query });
+
+    // ✅ Find user across all models
     let user =
       (await SuperAdmin.findOne(query).select("+password")) ||
       (await Client.findOne(query).select("+password")) ||
@@ -47,44 +48,67 @@ export const login = async (req, res, next) => {
       (await Supervisor.findOne(query).select("+password"));
 
     if (!user) {
+      console.log('❌ User not found');
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
+    console.log('👤 User found:', {
+      id: user._id,
+      email: user.email,
+      mobile: user.mobile,
+      role: user.role,
+      isActive: user.isActive,
+      status: user.status
+    });
+
+    // ✅ Check if account is active
     if (user.isActive === false) {
+      console.log('🚫 Account deactivated');
       return res.status(403).json({
-        message: "Your account is deactivated. Please contact SuperAdmin.",
+        message: "Your account is deactivated. Please contact admin.",
       });
     }
 
-    /* 🔐 PASSWORD CHECK (HASH + PLAIN FALLBACK) */
+    // ✅ Verify password
     const matchResult = await comparePassword(password, user.password);
 
     if (!matchResult) {
+      console.log('❌ Password mismatch');
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    /* 🔁 AUTO-MIGRATION: PLAIN → HASH */
+    console.log('✅ Password verified');
+
+    // ✅ Auto-migrate plain text passwords to hashed
     if (matchResult === "PLAIN_MATCH") {
       user.password = await hashPassword(password);
       await user.save();
       console.log("🔐 Password auto-migrated for:", user.email || user.mobile);
     }
 
+    // ✅ Determine clientId
     let clientId = user.clientId || null;
-    if (user.role === "client") clientId = user._id;
+    if (user.role === "client") {
+      clientId = user._id;
+    }
 
-    // ✅ ADD EMAIL TO PAYLOAD
+    // ✅ Create JWT payload
     const payload = {
       id: user._id,
-      email: user.email,  // ← ADD THIS LINE
+      email: user.email,
+      mobile: user.mobile,
       role: user.role,
       clientId,
       siteId: user.siteId || null,
     };
 
+    console.log('🔑 Generating tokens for:', { id: user._id, role: user.role });
+
+    // ✅ Generate tokens
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
+    // ✅ Store refresh token
     await RefreshToken.deleteMany({ userId: user._id });
     await RefreshToken.create({
       userId: user._id,
@@ -92,6 +116,7 @@ export const login = async (req, res, next) => {
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
+    // ✅ Set HTTP-only cookie
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -99,17 +124,23 @@ export const login = async (req, res, next) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
+    console.log('✅ Login successful for:', user.email || user.mobile);
+
+    // ✅ Send response
     res.json({
       accessToken,
       user: {
         id: user._id,
+        name: user.name,
         email: user.email,
         mobile: user.mobile,
         role: user.role,
         clientId,
+        siteId: user.siteId || null,
       },
     });
   } catch (err) {
+    console.error('❌ Login error:', err);
     next(err);
   }
 };

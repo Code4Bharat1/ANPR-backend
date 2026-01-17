@@ -482,36 +482,62 @@ export const togglePMStatus = async (req, res, next) => {
     next(err);
   }
 };
-export const toggleSupervisorStatus = async (req, res, next) => {
+/**
+ * TOGGLE SUPERVISOR STATUS
+ */
+export const toggleSupervisor = async (req, res, next) => {
   try {
     const { status } = req.body;
     const { id } = req.params;
 
+    console.log('Toggle supervisor status called:', { 
+      id, 
+      status,
+      userId: req.user?.id,
+      clientId: req.user?.clientId 
+    });
 
-
-    // Check if req.user exists
     if (!req.user || !req.user.clientId) {
       return res.status(401).json({ message: "Authentication failed" });
     }
 
-    const user = await Supervisor.findOne({
+    const supervisor = await Supervisor.findOne({
       _id: id,
+      clientId: req.user.clientId
     });
 
-
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
+    if (!supervisor) {
+      return res.status(404).json({ 
+        message: "Supervisor not found or unauthorized" 
+      });
     }
 
-    user.status = status;
-    await user.save();
+    // ✅ UPDATE BOTH FIELDS - THIS IS CRITICAL!
+    supervisor.status = status;
+    supervisor.isActive = status === 'Active'; // Sync the boolean field
+    
+    await supervisor.save();
+
+    console.log('Supervisor status updated:', {
+      id: supervisor._id,
+      name: supervisor.name,
+      status: supervisor.status,
+      isActive: supervisor.isActive
+    });
 
     res.json({
-      message: "User status updated",
-      status: user.status,
+      success: true,
+      message: `Supervisor ${supervisor.isActive ? 'activated' : 'deactivated'} successfully`,
+      data: {
+        _id: supervisor._id,
+        name: supervisor.name,
+        status: supervisor.status,
+        isActive: supervisor.isActive
+      }
     });
+
   } catch (err) {
-    console.error('Toggle status error:', err);
+    console.error('Toggle supervisor error:', err);
     next(err);
   }
 };

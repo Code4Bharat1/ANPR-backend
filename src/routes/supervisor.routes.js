@@ -43,7 +43,7 @@ router.patch(
 router.patch(
     "/:id/toggle",
     verifyAccessToken,
-    authorizeRoles("project_manager"),
+    authorizeRoles("project_manager","client","admin"),
     toggleSupervisor
 );
 router.get(

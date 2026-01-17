@@ -20,7 +20,7 @@
     updateMyProfile,
     getProjectManagers,
     togglePMStatus,
-    toggleSupervisorStatus,
+    toggleSupervisor,
     updateProjectManager,
 
   } from "../controllers/client.controller.js";
@@ -134,7 +134,7 @@ const router = express.Router();
 
 
   router.patch("/supervisor/:id/status",verifyAccessToken,                    // 🔥 MUST
-    authorizeRoles("client", "admin"), toggleSupervisorStatus);
+    authorizeRoles("client", "admin"), toggleSupervisor);
 
 
 
