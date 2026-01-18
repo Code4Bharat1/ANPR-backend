@@ -32,8 +32,7 @@ export const readPlate = async (req, res) => {
           {
             upload: imageData,
             regions: ["in", "gb"],
-            mmc: true,
-            direction: true,
+            
           },
           {
             headers: {
