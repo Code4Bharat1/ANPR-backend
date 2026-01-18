@@ -19,6 +19,7 @@ import superAdminRoutes from "./src/routes/superadmin.routes.js";
 import projectRoutes from "./src/routes/projectManager.routes.js";
 import supervisorRoutes from "./src/routes/supervisor.routes.js";
 import uploadRoutes from "./src/routes/upload.routes.js";
+import plateRoutes from "./src/routes/plate.routes.js";
 
 // Models (for retention cleanup)
 import Trip from "./src/models/Trip.model.js";
@@ -89,6 +90,7 @@ app.use("/api/reports", reportRoutes);
 app.use("/api/project",projectRoutes);
 app.use("/api/supervisor",supervisorRoutes);
 app.use('/api/uploads',uploadRoutes);
+app.use("/api/plate", plateRoutes);
 /* =======================
    Error Middleware
 ======================= */
