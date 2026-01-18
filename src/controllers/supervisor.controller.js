@@ -481,14 +481,17 @@ export const getActiveVehicles = async (req, res, next) => {
       });
     }
 
-    const OVERSTAY_MINUTES = 240; // 4 hours
+    const OVERSTAY_MINUTES = 240;
 
     const trips = await Trip.find({
       siteId: new mongoose.Types.ObjectId(siteId),
       status: { $in: ["INSIDE", "active"] },
     })
       .populate("vendorId", "name")
-      .populate("vehicleId", "vehicleNumber vehicleType driverName driverPhone")
+      .populate(
+        "vehicleId",
+        "vehicleNumber vehicleType driverName driverPhone"
+      )
       .sort({ entryAt: -1 })
       .lean();
 
@@ -496,20 +499,39 @@ export const getActiveVehicles = async (req, res, next) => {
 
     const formatted = trips.map((t) => {
       const entryTime = new Date(t.entryAt);
-      const durationMinutes = Math.floor((now - entryTime.getTime()) / (1000 * 60));
+      const durationMinutes = Math.floor(
+        (now - entryTime.getTime()) / (1000 * 60)
+      );
 
       return {
-        _id: t._id?.toString(),
+        // 🔑 IDs
+        _id: t._id?.toString(),                  // Trip ID (UI)
         tripId: t.tripId || "N/A",
-        vehicleNumber: t.vehicleId?.vehicleNumber || t.plateText || "Unknown",
+        vehicleId: t.vehicleId?._id?.toString(), // ✅ FIX (Vehicle ID)
+
+        // Vehicle
+        vehicleNumber:
+          t.vehicleId?.vehicleNumber || t.plateText || "Unknown",
         vehicleType: t.vehicleId?.vehicleType || "Unknown",
+
+        // Relations
         vendor: t.vendorId?.name || "Unknown",
+
+        // Driver
         driver: t.vehicleId?.driverName || "N/A",
         driverPhone: t.vehicleId?.driverPhone || "N/A",
+
+        // Time
         entryTime: entryTime.toLocaleString(),
         entryTimeISO: entryTime.toISOString(),
-        duration: `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}m`,
+
+        // Duration
+        duration: `${Math.floor(durationMinutes / 60)}h ${
+          durationMinutes % 60
+        }m`,
         durationMinutes,
+
+        // Status
         status: durationMinutes > OVERSTAY_MINUTES ? "overstay" : "loading",
         loadStatus: t.loadStatus || "FULL",
         purpose: t.purpose || "N/A",
@@ -517,7 +539,7 @@ export const getActiveVehicles = async (req, res, next) => {
       };
     });
 
-    res.json({
+    return res.json({
       success: true,
       count: formatted.length,
       data: formatted,

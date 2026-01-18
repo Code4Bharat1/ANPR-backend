@@ -236,17 +236,8 @@ export const getTripHistory = async (req, res) => {
  */
 export const getActiveTrips = async (req, res) => {
   try {
-    // Get siteId from query parameter OR authenticated user
     const siteId = req.query.siteId || req.user?.siteId;
     const clientId = req.user?.clientId;
-
-    console.log('🚗 Get active vehicles request:', {
-      siteId,
-      fromQuery: req.query.siteId,
-      fromUser: req.user?.siteId,
-      clientId,
-      hasAuth: !!req.user
-    });
 
     if (!siteId && !clientId) {
       return res.status(400).json({
@@ -255,81 +246,85 @@ export const getActiveTrips = async (req, res) => {
       });
     }
 
-    const OVERSTAY_MINUTES = 240; // 4 hours
+    const OVERSTAY_MINUTES = 240;
 
-    // Build query
     const query = {};
     if (siteId) {
       query.siteId = new mongoose.Types.ObjectId(siteId);
-    } else if (clientId) {
+    } else {
       query.clientId = new mongoose.Types.ObjectId(clientId);
     }
-    query.status = { $in: ["INSIDE", "active"] };
 
-    console.log('🔍 Querying active trips with:', query);
+    query.status = { $in: ["INSIDE", "active"] };
 
     const trips = await Trip.find(query)
       .populate("vendorId", "name companyName")
-      .populate("vehicleId", "vehicleNumber plateNumber vehicleType driverName driverPhone")
+      .populate(
+        "vehicleId",
+        "vehicleNumber plateNumber vehicleType driverName driverPhone"
+      )
       .populate("siteId", "name")
       .sort({ entryAt: -1 })
       .lean();
-
-    console.log('📊 Found active trips:', {
-      count: trips.length,
-      tripIds: trips.map(t => t.tripId || t._id)
-    });
 
     const now = Date.now();
 
     const formatted = trips.map((t) => {
       const entryTime = new Date(t.entryAt);
-      const durationMinutes = Math.floor((now - entryTime.getTime()) / (1000 * 60));
-
-      // Format times for IST
-      const entryTimeIST = entryTime.toLocaleString('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      });
+      const durationMinutes = Math.floor(
+        (now - entryTime.getTime()) / (1000 * 60)
+      );
 
       return {
-        _id: t._id?.toString(),
+        // 🔑 IDs
+        _id: t._id.toString(),                    // Trip ID
         tripId: t.tripId || "N/A",
-        vehicleNumber: t.vehicleId?.vehicleNumber || t.vehicleId?.plateNumber || t.plateText || "Unknown",
+        vehicleId: t.vehicleId?._id?.toString(), // ✅ Vehicle ID (FIX)
+
+        // Vehicle info
+        vehicleNumber:
+          t.vehicleId?.vehicleNumber ||
+          t.vehicleId?.plateNumber ||
+          t.plateText ||
+          "Unknown",
         vehicleType: t.vehicleId?.vehicleType || "Unknown",
+
+        // Relations
         vendor: t.vendorId?.name || t.vendorId?.companyName || "Unknown",
-        driver: t.vehicleId?.driverName || "N/A",
-        driverPhone: t.vehicleId?.driverPhone || "N/A",
         site: t.siteId?.name || "N/A",
 
-        // Time fields
+        // Driver
+        driver: t.vehicleId?.driverName || "N/A",
+        driverPhone: t.vehicleId?.driverPhone || "N/A",
+
+        // Time
         entryTimeUTC: entryTime.toISOString(),
-        entryTimeIST,
+        entryTimeIST: entryTime.toLocaleString("en-IN", {
+          timeZone: "Asia/Kolkata",
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        }),
 
         // Duration
-        duration: `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}m`,
+        duration: `${Math.floor(durationMinutes / 60)}h ${
+          durationMinutes % 60
+        }m`,
         durationMinutes,
 
-        // Status and other fields
+        // Status
         status: durationMinutes > OVERSTAY_MINUTES ? "overstay" : "loading",
         loadStatus: t.loadStatus || "FULL",
         purpose: t.purpose || "N/A",
         entryGate: t.entryGate || "N/A",
-        notes: t.notes || ""
+        notes: t.notes || "",
       };
     });
 
-    console.log('✅ Active vehicles fetched:', {
-      count: formatted.length,
-      vehicles: formatted.map(v => v.vehicleNumber)
-    });
-
-    res.json({
+    return res.json({
       success: true,
       count: formatted.length,
       siteId: siteId || null,
@@ -338,10 +333,9 @@ export const getActiveTrips = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Get active vehicles error:", err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch active vehicles",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
