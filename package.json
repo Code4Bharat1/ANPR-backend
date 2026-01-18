@@ -25,6 +25,7 @@
     "express-rate-limit": "^8.2.1",
     "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.3",
+    "mongodb": "^7.0.0",
     "mongoose": "^8.20.4",
     "multer": "^2.0.2",
     "xlsx": "^0.18.5"

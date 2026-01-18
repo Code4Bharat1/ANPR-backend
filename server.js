@@ -46,7 +46,9 @@ app.use(
       "http://localhost:3000",
       "https://anpr.nexcorealliance.com",
       "https://www.anpr.nexcorealliance.com",
-      "https://www.webhooks.nexcorealliance.com"], 
+      "https://www.webhooks.nexcorealliance.com",
+      "https://api.platerecognizer.com/v1/plate-reader/",
+    ],
     credentials: true,
   })
 );

@@ -13,42 +13,61 @@ export const readPlate = async (req, res) => {
       });
     }
 
-    // ✅ Ensure FULL data URL (Plate Recognizer requirement)
+    // ✅ Ensure FULL data URL
     const imageData = image_base64.startsWith("data:image")
       ? image_base64
       : `data:image/jpeg;base64,${image_base64}`;
 
     console.log("🚀 Calling Plate Recognizer API...");
 
-    const response = await axios.post(
-      "https://api.platerecognizer.com/v1/plate-reader/",
-      {
-        upload: imageData,
-        regions: ["in", "gb"],
-        mmc: true,
-        direction: true,
-      },
-      {
-        headers: {
-          Authorization: `Token ${process.env.PLATE_RECOGNIZER_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        timeout: 15000,
+    let apiResponse;
+
+    // 🔁 Retry logic (Render + network safe)
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        console.log(`🔁 OCR API attempt ${attempt}`);
+
+        apiResponse = await axios.post(
+          "https://api.platerecognizer.com/v1/plate-reader/",
+          {
+            upload: imageData,
+            regions: ["in", "gb"],
+            mmc: true,
+            direction: true,
+          },
+          {
+            headers: {
+              Authorization: `Token ${process.env.PLATE_RECOGNIZER_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 30000, // ⬅️ Render safe
+          }
+        );
+
+        break; // success → exit retry loop
+      } catch (err) {
+        const isTimeout = err.code === "ECONNABORTED";
+        console.warn(
+          `⚠️ OCR attempt ${attempt} failed`,
+          isTimeout ? "Timeout" : err.message
+        );
+
+        if (attempt === 2) throw err;
       }
-    );
+    }
 
     console.log(
       "✅ API raw response:",
-      JSON.stringify(response.data, null, 2)
+      JSON.stringify(apiResponse.data, null, 2)
     );
 
-    const result = response.data?.results?.[0];
+    const result = apiResponse.data?.results?.[0];
 
     if (!result) {
       return res.status(200).json({
         success: false,
         message: "No plate detected",
-        rawResponse: response.data,
+        rawResponse: apiResponse.data,
       });
     }
 
@@ -68,8 +87,7 @@ export const readPlate = async (req, res) => {
 
     console.log("✅ Saved successfully:", savedPlate._id);
 
-    // ✅ Frontend-friendly response
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       plate: savedPlate.plate,
       score: savedPlate.score,
@@ -81,38 +99,12 @@ export const readPlate = async (req, res) => {
   } catch (error) {
     console.error("❌ Error in readPlate:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error:
         error.response?.data?.error ||
         error.message ||
         "Plate OCR failed",
-      details:
-        process.env.NODE_ENV === "development"
-          ? error.stack
-          : undefined,
-    });
-  }
-};
-
-// ================= HISTORY API =================
-
-export const getAllPlates = async (req, res) => {
-  try {
-    const plates = await Plate.find()
-      .sort({ createdAt: -1 })
-      .limit(50);
-
-    res.status(200).json({
-      success: true,
-      count: plates.length,
-      data: plates,
-    });
-  } catch (error) {
-    console.error("❌ Error fetching plates:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
     });
   }
 };
