@@ -387,26 +387,61 @@ export const getAuditLogs = async (req, res, next) => {
 ====================================================== */
 export const createClient = async (req, res, next) => {
   try {
-    const { packageType } = req.body;
-    const plan = PLANS[packageType];
+    const {
+      name,          // ✅ client name
+      companyName,
+      email,
+      phone,
+      password,
+      packageType,
+      packageStart,
+      packageEnd,
+      address,
+    } = req.body;
 
+    // 📦 Validate package
+    const plan = PLANS[packageType];
     if (!plan) {
       return res.status(400).json({ message: "Invalid package" });
     }
 
+    // 🔐 Generate password if not sent
+    const finalPassword =
+      password || Math.random().toString(36).slice(-8);
+
     const client = await Client.create({
-      ...req.body,
-      userLimits: plan.limits,
+      name,                 // ✅ FIXED
+      companyName,
+      email,
+      phone,
+      password: finalPassword,
+      packageType,
+      packageStart,
+      packageEnd,
+      location: address,
+
+      // ✅ Correct limits mapping
+      userLimits: {
+        pm: plan.limits.pm,
+        supervisor: plan.limits.supervisor,
+      },
       deviceLimits: plan.limits.devices,
+
       createdBy: req.user.id,
       isActive: true,
     });
 
-    res.status(201).json(client);
+    res.status(201).json({
+      message: "Client created successfully",
+      data: client,
+      tempPassword: password ? undefined : finalPassword, // optional
+    });
+
   } catch (e) {
     next(e);
   }
 };
+
 
 export const listClients = async (req, res, next) => {
   try {
@@ -500,7 +535,7 @@ export const createDevice = async (req, res) => {
       notes
     } = req.body;
 
-    // console.log("Received data:", req.body); // 调试用
+    console.log("Received data:", req.body); // 调试用
 
     // ✅ 更新验证逻辑，包含 deviceName
     if (!clientId || !deviceType || !serialNumber || !deviceName) {

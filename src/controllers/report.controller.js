@@ -55,9 +55,9 @@ export const getReports = async (req, res, next) => {
   try {
     const { startDate, endDate, status, site } = req.query;
 
-    // console.log('🔍 GET REPORTS called for user:', req.user.id);
-    // console.log('🔍 User role:', req.user.role);
-    // console.log('🔍 User clientId:', req.user.clientId);
+    console.log('🔍 GET REPORTS called for user:', req.user.id);
+    console.log('🔍 User role:', req.user.role);
+    console.log('🔍 User clientId:', req.user.clientId);
 
     // 1. Admin ke assigned sites find karein
     let assignedSiteIds = [];
@@ -66,7 +66,7 @@ export const getReports = async (req, res, next) => {
       // Admin ke liye - uske client ke sabhi sites
       const allSites = await Site.find({ clientId: req.user.clientId }, '_id');
       assignedSiteIds = allSites.map(site => site._id);
-      // console.log(`🏢 Admin ${req.user.id} ke total sites: ${assignedSiteIds.length}`);
+      console.log(`🏢 Admin ${req.user.id} ke total sites: ${assignedSiteIds.length}`);
     } else if (req.user.role === 'project_manager') {
       // Project manager ke liye - assigned sites
       const projectManager = await ProjectManager.findOne({ user: req.user.id })
@@ -75,17 +75,17 @@ export const getReports = async (req, res, next) => {
       if (projectManager) {
         assignedSiteIds = projectManager.assignedSites.map(site => site._id);
       }
-      // console.log(`👷 Project Manager ${req.user.id} ke assigned sites: ${assignedSiteIds.length}`);
+      console.log(`👷 Project Manager ${req.user.id} ke assigned sites: ${assignedSiteIds.length}`);
     } else {
       // Client ke liye - sabhi sites
       const allSites = await Site.find({ clientId: req.user.clientId }, '_id');
       assignedSiteIds = allSites.map(site => site._id);
-      // console.log(`🏢 Client ${req.user.clientId} ke total sites: ${assignedSiteIds.length}`);
+      console.log(`🏢 Client ${req.user.clientId} ke total sites: ${assignedSiteIds.length}`);
     }
 
     // Agar koi sites nahi hain toh empty array return karein
     if (assignedSiteIds.length === 0) {
-      // console.log('⚠️ No sites assigned to user');
+      console.log('⚠️ No sites assigned to user');
       return res.json([]);
     }
 
@@ -95,7 +95,7 @@ export const getReports = async (req, res, next) => {
       siteId: { $in: assignedSiteIds }  // Sirf assigned sites ke trips
     };
 
-    // console.log('📍 Querying trips for siteIds:', assignedSiteIds);
+    console.log('📍 Querying trips for siteIds:', assignedSiteIds);
 
     // Date filter - entryAt field use karein
     if (startDate && endDate) {
@@ -103,7 +103,7 @@ export const getReports = async (req, res, next) => {
         $gte: new Date(startDate),
         $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999))
       };
-      // console.log('📅 Date range:', query.entryAt);
+      console.log('📅 Date range:', query.entryAt);
     }
 
     // Status filter
@@ -133,7 +133,7 @@ export const getReports = async (req, res, next) => {
       }
     }
 
-    // console.log('🔍 Final query:', JSON.stringify(query, null, 2));
+    console.log('🔍 Final query:', JSON.stringify(query, null, 2));
 
     // 3. Get trips with populated data
     const trips = await Trip.find(query)
@@ -141,7 +141,7 @@ export const getReports = async (req, res, next) => {
       .populate('vehicleId', 'vehicleNumber')
       .sort({ entryAt: -1 });
 
-    // console.log(`✅ Found ${trips.length} trips for user ${req.user.id}`);
+    console.log(`✅ Found ${trips.length} trips for user ${req.user.id}`);
 
     // 4. Format response
     const formattedTrips = trips.map((trip) => {
@@ -200,8 +200,8 @@ export const exportReports = async (req, res, next) => {
   try {
     const { startDate, endDate, status, site } = req.query;
 
-    // console.log('📤 Export started for user:', req.user.id);
-    // console.log('📤 Filters:', { startDate, endDate, status, site });
+    console.log('📤 Export started for user:', req.user.id);
+    console.log('📤 Filters:', { startDate, endDate, status, site });
 
     // 1️⃣ Get user's assigned sites
     let assignedSiteIds = [];
@@ -216,7 +216,7 @@ export const exportReports = async (req, res, next) => {
     }
 
     if (assignedSiteIds.length === 0) {
-      // console.log('⚠️ No sites assigned');
+      console.log('⚠️ No sites assigned');
       return res.status(404).json({ message: 'No sites assigned to user' });
     }
 
@@ -232,7 +232,7 @@ export const exportReports = async (req, res, next) => {
         $gte: new Date(startDate),
         $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999))
       };
-      // console.log('📅 Date filter:', query.entryAt);
+      console.log('📅 Date filter:', query.entryAt);
     }
 
     // Status filter with mapping
@@ -255,7 +255,7 @@ export const exportReports = async (req, res, next) => {
       }
     }
 
-    // console.log('🔍 Export query:', JSON.stringify(query, null, 2));
+    console.log('🔍 Export query:', JSON.stringify(query, null, 2));
 
     // 3️⃣ Fetch trips with ALL related data populated
     const trips = await Trip.find(query)
@@ -265,7 +265,7 @@ export const exportReports = async (req, res, next) => {
       .populate('clientId', 'companyName') // Client info (optional)
       .sort({ entryAt: -1 });
 
-    // console.log(`✅ Found ${trips.length} trips for export`);
+    console.log(`✅ Found ${trips.length} trips for export`);
 
     if (trips.length === 0) {
       return res.status(404).json({ message: 'No trips found for export' });
@@ -474,7 +474,7 @@ export const exportReports = async (req, res, next) => {
     await workbook.xlsx.write(res);
     res.end();
 
-    // console.log(`✅ Export successful: ${trips.length} trips exported`);
+    console.log(`✅ Export successful: ${trips.length} trips exported`);
 
   } catch (err) {
     console.error('❌ Export error:', err);
@@ -496,8 +496,8 @@ export const getTripReportsPM = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     
-    // console.log('👤 PM Reports - User ID:', req.user.id);
-    // console.log('👤 PM Reports - User role:', req.user.role);
+    console.log('👤 PM Reports - User ID:', req.user.id);
+    console.log('👤 PM Reports - User role:', req.user.role);
 
     // 1. Get the project manager by USER ID
     let projectManager;
@@ -509,19 +509,19 @@ export const getTripReportsPM = async (req, res) => {
         _id: req.user.id  // ← Use ID instead of email
       }).populate('assignedSites', '_id name siteId');
       
-      // console.log('🔍 Query used:', { _id: req.user.id });
-      // console.log('🏢 Project Manager found:', projectManager?._id);
+      console.log('🔍 Query used:', { _id: req.user.id });
+      console.log('🏢 Project Manager found:', projectManager?._id);
       
       if (projectManager) {
-        // console.log('✅ PM Details:');
-        // console.log('- PM ID:', projectManager._id);
-        // console.log('- PM Name:', projectManager.name);
-        // console.log('- PM Email:', projectManager.email);
-        // console.log('- Assigned Sites Count:', projectManager.assignedSites?.length || 0);
+        console.log('✅ PM Details:');
+        console.log('- PM ID:', projectManager._id);
+        console.log('- PM Name:', projectManager.name);
+        console.log('- PM Email:', projectManager.email);
+        console.log('- Assigned Sites Count:', projectManager.assignedSites?.length || 0);
         
         assignedSites = projectManager.assignedSites || [];
       } else {
-        // console.log('❌ No Project Manager found with ID:', req.user.id);
+        console.log('❌ No Project Manager found with ID:', req.user.id);
       }
     } else {
       return res.status(403).json({ 
@@ -532,16 +532,16 @@ export const getTripReportsPM = async (req, res) => {
     // Get site IDs from assigned sites
     const siteIds = assignedSites.map(site => site._id);
     
-    // console.log('📍 Assigned Sites count:', siteIds.length);
+    console.log('📍 Assigned Sites count:', siteIds.length);
 
     // 2. Build filter based on sites
     const filter = {};
     
     if (siteIds.length > 0) {
       filter.siteId = { $in: siteIds };
-      // console.log('📍 Filtering by sites:', siteIds);
+      console.log('📍 Filtering by sites:', siteIds);
     } else {
-      // console.log('⚠️ No sites assigned to PM, returning empty array');
+      console.log('⚠️ No sites assigned to PM, returning empty array');
       return res.json([]);
     }
 
@@ -553,7 +553,7 @@ export const getTripReportsPM = async (req, res) => {
       };
     }
 
-    // console.log('🔍 Final filter:', JSON.stringify(filter, null, 2));
+    console.log('🔍 Final filter:', JSON.stringify(filter, null, 2));
 
     // 4. Get trips - Make sure Trip model is imported
     const reports = await Trip.find(filter)
@@ -565,7 +565,7 @@ export const getTripReportsPM = async (req, res) => {
       .populate('projectManagerId', 'name email')
       .sort({ entryAt: -1 });
 
-    // console.log(`📊 Found ${reports.length} trips for PM ${projectManager?.email || req.user.id}`);
+    console.log(`📊 Found ${reports.length} trips for PM ${projectManager?.email || req.user.id}`);
 
     // Helper function to map status
     const mapStatus = (status) => {
@@ -605,7 +605,7 @@ export const getTripReportsPM = async (req, res) => {
       notes: trip.notes
     }));
 
-    // console.log(`📤 Sending ${formattedReports.length} reports to frontend`);
+    console.log(`📤 Sending ${formattedReports.length} reports to frontend`);
     res.json(formattedReports);
     
   } catch (err) {
@@ -624,8 +624,8 @@ export const exportReportsToExcelPM = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     
-    // console.log('📤 PM Export request from user:', req.user.id);
-    // console.log('📤 PM Email:', req.user.email);
+    console.log('📤 PM Export request from user:', req.user.id);
+    console.log('📤 PM Email:', req.user.email);
 
     // 1. Get project manager by EMAIL (not user ID)
     let projectManager;
@@ -637,25 +637,25 @@ export const exportReportsToExcelPM = async (req, res) => {
         email: req.user.email 
       }).populate('assignedSites', '_id name');
       
-      // console.log('🔍 PM Query:', { email: req.user.email });
-      // console.log('🏢 PM Found:', projectManager ? 'Yes' : 'No');
+      console.log('🔍 PM Query:', { email: req.user.email });
+      console.log('🏢 PM Found:', projectManager ? 'Yes' : 'No');
       
       if (projectManager) {
-        // console.log('✅ PM Details:');
-        // console.log('- Name:', projectManager.name);
-        // console.log('- Email:', projectManager.email);
-        // console.log('- Assigned Sites:', projectManager.assignedSites?.length || 0);
+        console.log('✅ PM Details:');
+        console.log('- Name:', projectManager.name);
+        console.log('- Email:', projectManager.email);
+        console.log('- Assigned Sites:', projectManager.assignedSites?.length || 0);
         
         assignedSites = projectManager.assignedSites || [];
       } else {
-        // console.log('❌ No Project Manager found with email:', req.user.email);
+        console.log('❌ No Project Manager found with email:', req.user.email);
       }
     }
     
     const siteIds = assignedSites.map(site => site._id);
     
-    // console.log('📍 Assigned Site IDs:', siteIds);
-    // console.log('📍 Site IDs count:', siteIds.length);
+    console.log('📍 Assigned Site IDs:', siteIds);
+    console.log('📍 Site IDs count:', siteIds.length);
     
     // Build filter
     const filter = {};
@@ -663,7 +663,7 @@ export const exportReportsToExcelPM = async (req, res) => {
     if (siteIds.length > 0) {
       filter.siteId = { $in: siteIds };
     } else {
-      // console.log('⚠️ No sites assigned, returning empty Excel');
+      console.log('⚠️ No sites assigned, returning empty Excel');
       
       // Create a more informative Excel file
       const wb = XLSX.utils.book_new();
@@ -707,7 +707,7 @@ export const exportReportsToExcelPM = async (req, res) => {
       };
     }
 
-    // console.log('🔍 Export filter:', JSON.stringify(filter, null, 2));
+    console.log('🔍 Export filter:', JSON.stringify(filter, null, 2));
 
     // Get trips
     const reports = await Trip.find(filter)
@@ -719,7 +719,7 @@ export const exportReportsToExcelPM = async (req, res) => {
       .populate('projectManagerId', 'name email')
       .sort({ entryAt: -1 });
 
-    // console.log(`📤 Found ${reports.length} trips for export`);
+    console.log(`📤 Found ${reports.length} trips for export`);
 
     if (reports.length === 0) {
       // Create Excel with message
@@ -838,7 +838,7 @@ export const exportReportsToExcelPM = async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 
-    // console.log(`✅ Export successful: ${reports.length} trips`);
+    console.log(`✅ Export successful: ${reports.length} trips`);
     res.send(buffer);
     
   } catch (err) {
@@ -861,7 +861,7 @@ export const getReportStatsPM = async (req, res) => {  // ✅ Changed function n
   try {
     const { startDate, endDate } = req.query;
     
-    // console.log('📊 PM Stats request from user:', req.user.id);
+    console.log('📊 PM Stats request from user:', req.user.id);
 
     // 1. Get project manager and assigned sites
     let projectManager;
@@ -900,7 +900,7 @@ export const getReportStatsPM = async (req, res) => {  // ✅ Changed function n
       };
     }
 
-    // console.log('📊 PM Stats filter:', filter);
+    console.log('📊 PM Stats filter:', filter);
 
     const [totalTrips, completedTrips, activeTrips, totalDuration] = await Promise.all([
       Trip.countDocuments(filter),
@@ -937,12 +937,12 @@ export const getReportStatsPM = async (req, res) => {  // ✅ Changed function n
       ])
     ]);
 
-    // console.log('📊 PM Stats Results:', {
-    //   totalTrips,
-    //   completedTrips,
-    //   activeTrips,
-    //   totalDuration: totalDuration[0]?.totalDuration || 0
-    // });
+    console.log('📊 PM Stats Results:', {
+      totalTrips,
+      completedTrips,
+      activeTrips,
+      totalDuration: totalDuration[0]?.totalDuration || 0
+    });
 
     const avgDuration = totalDuration.length > 0 && completedTrips > 0
       ? Math.floor(totalDuration[0].totalDuration / completedTrips / (1000 * 60))

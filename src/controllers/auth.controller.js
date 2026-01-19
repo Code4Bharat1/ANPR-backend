@@ -67,7 +67,7 @@ export const login = async (req, res, next) => {
     if (matchResult === "PLAIN_MATCH") {
       user.password = await hashPassword(password);
       await user.save();
-      // console.log("🔐 Password auto-migrated for:", user.email || user.mobile);
+      console.log("🔐 Password auto-migrated for:", user.email || user.mobile);
     }
 
     let clientId = user.clientId || null;

@@ -66,7 +66,7 @@ router.patch(
 router.get('/dashboard/stats', verifyAccessToken, authorizeRoles('project_manager'), getDashboardStats);
 
 // Site routes
-// 在你的路由文件中
+
 router.get('/my-sites', verifyAccessToken, authorizeRoles('project_manager'), getMySites);
 router.get("/sites/:id", verifyAccessToken, authorizeRoles('project_manager'), getPMSiteDetails);
 router.get("/sites/:id/traffic",verifyAccessToken, authorizeRoles('project_manager'), getSiteTraffic);

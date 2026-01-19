@@ -19,13 +19,13 @@ export const getTripHistory = async (req, res) => {
     const siteId = req.user?.siteId || req.query.siteId;
     const clientId = req.user?.clientId;
 
-    // console.log('🚗 Get trip history request:', {
-    //   siteId,
-    //   period,
-    //   userId: req.user?._id,
-    //   userRole: req.user?.role,
-    //   filters: { status, vehicleNumber, vendorId, startDate, endDate }
-    // });
+    console.log("🚗 Get trip history request:", {
+      siteId,
+      period,
+      userId: req.user?._id,
+      userRole: req.user?.role,
+      filters: { status, vehicleNumber, vendorId, startDate, endDate },
+    });
 
     if (!siteId && !clientId) {
       return res.status(400).json({
@@ -80,7 +80,7 @@ export const getTripHistory = async (req, res) => {
 
     Object.assign(query, dateFilter);
 
-    // console.log('🔍 Querying trips with:', query);
+    console.log("🔍 Querying trips with:", query);
 
     // Query trips with proper population
     const trips = await Trip.find(query)
@@ -207,10 +207,10 @@ export const getTripHistory = async (req, res) => {
       };
     });
 
-    // console.log('✅ Trip history formatted:', {
-    //   count: formattedTrips.length,
-    //   sample: formattedTrips[0]
-    // });
+    console.log("✅ Trip history formatted:", {
+      count: formattedTrips.length,
+      sample: formattedTrips[0],
+    });
 
     res.json({
       success: true,
@@ -529,18 +529,27 @@ export const getTripById = async (req, res) => {
  */
 export const exitVehicle = async (req, res) => {
   try {
-    const { vehicleId, exitTime, exitMedia, exitNotes } = req.body;
+    const {
+      vehicleId,
+      exitTime,
+      exitMedia,
+      exitNotes,
+      exitLoadStatus,
+      returnMaterialType,
+      papersVerified,
+      physicalInspection,
+      materialMatched,
+    } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(vehicleId)) {
+    // 1️⃣ Validate vehicleId
+    if (!vehicleId || !mongoose.Types.ObjectId.isValid(vehicleId)) {
       return res.status(400).json({
         success: false,
         message: "Invalid vehicleId",
       });
     }
 
-    const vehicle = await Trip.findById({ _id: vehicleId });
-
-    console.log("Vehicle: ", vehicle);
+    const vehicle = await Vehicle.findById(vehicleId);
 
     if (!vehicle) {
       return res.status(404).json({
@@ -549,7 +558,7 @@ export const exitVehicle = async (req, res) => {
       });
     }
 
-    if (vehicle.isInside) {
+    if (!vehicle.isInside) {
       return res.json({
         success: true,
         message: "Vehicle already exited",
@@ -561,12 +570,12 @@ export const exitVehicle = async (req, res) => {
     }
 
     const trip = await Trip.findOne({
-      _id: vehicleId,
+      vehicleId,
       status: { $ne: "EXITED" },
     }).sort({ entryAt: -1 });
 
     if (!trip) {
-      console.log("⚠️ Recovering missing trip for vehicle:", vehicleId);
+      console.warn("⚠️ Recovering missing trip for vehicle:", vehicleId);
 
       const recoveredTrip = await Trip.create({
         clientId: vehicle.clientId,
@@ -625,12 +634,22 @@ export const exitVehicle = async (req, res) => {
 
     trip.status = "EXITED";
     trip.exitAt = exitAt;
-    trip.exitGate = "Manual Exit";
+    trip.exitGate = trip.exitGate || "Manual Exit";
     trip.exitMedia = formattedExitMedia;
-    trip.notes = exitNotes || trip.notes;
+    trip.notes = exitNotes || "";
+
+    // 8️⃣ Save exit checklist (frontend fields)
+    trip.exitChecklist = {
+      exitLoadStatus,
+      returnMaterialType,
+      papersVerified,
+      physicalInspection,
+      materialMatched,
+    };
 
     await trip.save();
 
+    // 9️⃣ Update vehicle
     vehicle.isInside = false;
     vehicle.lastExitAt = exitAt;
     await vehicle.save();
@@ -639,13 +658,13 @@ export const exitVehicle = async (req, res) => {
       success: true,
       message: "Vehicle exited successfully",
       data: {
-        tripId: trip.tripId,
+        tripId: trip._id,
         exitAt,
       },
     });
   } catch (error) {
     console.error("❌ Exit error:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Exit failed",
     });
@@ -653,8 +672,8 @@ export const exitVehicle = async (req, res) => {
 };
 
 /**
- * @desc   Create manual trip entry (Supervisor/Desktop)
- * @route  POST /api/supervisor/vehicles/entry
+ * @desc   Create manual trip entry
+ * @route  POST /api/trips/manual
  * @access Supervisor, PM, Admin
  */
 export const createManualTrip = async (req, res) => {
@@ -682,9 +701,6 @@ export const createManualTrip = async (req, res) => {
       notes,
       media,
     } = req.body;
-
-    // console.log('📥 Received trip entry request');
-    // console.log('📸 Media received:', media);
 
     if (!vehicleNumber || !vendorId) {
       return res.status(400).json({
@@ -812,9 +828,6 @@ export const createManualTrip = async (req, res) => {
       createdBy: supervisorId,
     });
 
-    // console.log('✅ Trip created:', trip.tripId);
-    // console.log('📸 Saved entryMedia:', trip.entryMedia);
-
     res.status(201).json({
       success: true,
       message: "Manual trip entry created successfully",
@@ -866,13 +879,32 @@ export const createManualTripMobile = async (req, res) => {
       media,
     } = req.body;
 
-    // console.log('📥 Received mobile trip entry request');
-    // console.log('📸 Media received:', media);
-
-    if (!vehicleNumber || !vendorId) {
+    // 🔥 FIX: Make vendorId optional for certain vehicle types (like personal vehicles/bikes)
+    if (!vehicleNumber) {
       return res.status(400).json({
         success: false,
-        message: "vehicleNumber and vendorId are required",
+        message: "Vehicle number is required",
+      });
+    }
+
+    // If vehicle is a personal vehicle type, allow vendorId to be optional
+    const personalVehicleTypes = [
+      "BIKE",
+      "CAR",
+      "SCOOTER",
+      "MOTORCYCLE",
+      "PERSONAL",
+    ];
+    const isPersonalVehicle = personalVehicleTypes.includes(
+      (vehicleType || "").toUpperCase(),
+    );
+
+    if (!isPersonalVehicle && !vendorId) {
+      return res.status(400).json({
+        success: false,
+        message: "Vendor ID is required for commercial vehicles",
+        field: "vendorId",
+        validVehicleTypes: ["BIKE", "CAR", "SCOOTER", "MOTORCYCLE", "PERSONAL"],
       });
     }
 
@@ -898,20 +930,22 @@ export const createManualTripMobile = async (req, res) => {
         vehicleType: vehicleType || "TRUCK",
         driverName: driverName || "",
         driverPhone: driverPhone || "",
-        vendorId,
+        vendorId: vendorId || null, // Allow null for personal vehicles
         siteId,
         clientId,
         isInside: true,
         lastEntryAt: entryTime ? new Date(entryTime) : new Date(),
         createdBy: userId,
+        isPersonalVehicle: isPersonalVehicle,
       });
     } else {
       vehicle.driverName = driverName || vehicle.driverName;
       vehicle.driverPhone = driverPhone || vehicle.driverPhone;
       vehicle.vehicleType = vehicleType || vehicle.vehicleType;
-      vehicle.vendorId = vendorId;
+      vehicle.vendorId = vendorId || vehicle.vendorId;
       vehicle.isInside = true;
       vehicle.lastEntryAt = entryTime ? new Date(entryTime) : new Date();
+      vehicle.isPersonalVehicle = isPersonalVehicle;
       await vehicle.save();
     }
 
@@ -983,7 +1017,7 @@ export const createManualTripMobile = async (req, res) => {
       clientId,
       siteId,
       vehicleId: vehicle._id,
-      vendorId,
+      vendorId: vendorId || null, // Allow null for personal vehicles
       supervisorId: userId,
       projectManagerId: site?.projectManagerId || clientId,
       plateText: normalizedVehicleNumber,
@@ -997,10 +1031,8 @@ export const createManualTripMobile = async (req, res) => {
       notes: notes || "",
       createdBy: userId,
       source: "MOBILE",
+      isPersonalVehicle: isPersonalVehicle,
     });
-
-    // console.log('✅ Trip created:', trip.tripId);
-    // console.log('📸 Saved entryMedia:', trip.entryMedia);
 
     return res.status(201).json({
       success: true,
