@@ -94,7 +94,7 @@ export const getClientSites = async (req, res, next) => {
  */
 export const updateClientSite = async (req, res, next) => {
   try {
-    console.log('🔄 UPDATE SITE REQUEST BODY:', JSON.stringify(req.body, null, 2));
+    // console.log('🔄 UPDATE SITE REQUEST BODY:', JSON.stringify(req.body, null, 2));
 
     const { id } = req.params;
     const { gates } = req.body;
@@ -118,7 +118,7 @@ export const updateClientSite = async (req, res, next) => {
     // 🛡️ Gate validation and transformation
     let cleanedGates = [];
     if (gates && Array.isArray(gates)) {
-      console.log('🚪 Processing gates:', gates);
+      // console.log('🚪 Processing gates:', gates);
       
       cleanedGates = gates
         .filter(gate => {
@@ -134,7 +134,7 @@ export const updateClientSite = async (req, res, next) => {
           gateCode: gate.gateCode || undefined
         }));
       
-      console.log('🚪 Transformed gates:', cleanedGates);
+      // console.log('🚪 Transfo/rmed gates:', cleanedGates);
       
       const mainGateCount = cleanedGates.filter(g => g.isMainGate).length;
       if (mainGateCount > 1) {
@@ -158,7 +158,7 @@ export const updateClientSite = async (req, res, next) => {
       updateData.gates = cleanedGates;
     }
 
-    console.log('📝 Final update data:', updateData);
+    // console.log('📝 Final update data:', updateData);
 
     const updatedSite = await Site.findByIdAndUpdate(
       id,
@@ -169,7 +169,7 @@ export const updateClientSite = async (req, res, next) => {
       }
     );
 
-    console.log('✅ Site updated successfully');
+    // console.log('✅ Site updated successfully');
 
     await logAudit({ 
       req, 
@@ -306,9 +306,9 @@ export const deleteClientSite = async (req, res, next) => {
  */
 export const getMySites = async (req, res) => {
   try {
-    console.log('🔍 getMySites called');
-    console.log('🔍 req.user:', req.user);
-    console.log('🔍 User ID from token:', req.user?.id);
+    // console.log('🔍 getMySites called');
+    // console.log('🔍 req.user:', req.user);
+    // console.log('🔍 User ID from token:', req.user?.id);
     
     // Check if req.user exists
     if (!req.user || !req.user.id) {
@@ -328,7 +328,7 @@ export const getMySites = async (req, res) => {
       })
       .lean();
 
-    console.log('🔍 Found Project Manager:', pm ? 'Yes' : 'No');
+    // console.log('🔍 Found Project Manager:', pm ? 'Yes' : 'No');
     
     if (!pm) {
       console.error('❌ Project manager not found in database with ID:', req.user.id);
@@ -360,7 +360,7 @@ export const getMySites = async (req, res) => {
       createdAt: site.createdAt,
     }));
 
-    console.log('✅ Returning sites:', sites.length);
+    // console.log('✅ Returning sites:', sites.length);
     res.json(sites);
   } catch (err) {
     console.error("❌ Error fetching sites:", err);
@@ -906,7 +906,7 @@ export const resetDailyCounters = async () => {
         },
       }
     );
-    console.log("Daily counters reset successfully");
+    // console.log("Daily counters reset successfully");
   } catch (err) {
     console.error("Error resetting daily counters:", err);
   }

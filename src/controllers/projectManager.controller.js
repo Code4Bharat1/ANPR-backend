@@ -906,10 +906,10 @@ export const getanalytics = async (req, res, next) => {
     const { timeRange } = req.query;
     const clientId = req.user.clientId;
 
-    console.log('📊 Analytics request from:', req.user.email);
-    console.log('📊 User role:', req.user.role);
-    console.log('📊 Time range:', timeRange);
-    console.log('📊 Client ID:', clientId);
+    // console.log('📊 Analytics request from:', req.user.email);
+    // console.log('📊 User role:', req.user.role);
+    // console.log('📊 Time range:', timeRange);
+    // console.log('📊 Client ID:', clientId);
 
     /* -------------------------
        GET PM'S ASSIGNED SITES
@@ -921,14 +921,14 @@ export const getanalytics = async (req, res, next) => {
         email: req.user.email 
       }).populate('assignedSites', '_id');
       
-      console.log('🔍 PM query result:', projectManager ? 'Found' : 'Not found');
+      // console.log('🔍 PM query result:', projectManager ? 'Found' : 'Not found');
       
       if (projectManager?.assignedSites?.length > 0) {
         const siteIds = projectManager.assignedSites.map(site => site._id);
         siteFilter = { siteId: { $in: siteIds } };
-        console.log(`📍 Filtering by ${siteIds.length} assigned sites`);
+        // console.log(`📍 Filtering by ${siteIds.length} assigned sites`);
       } else {
-        console.log('⚠️ PM has no assigned sites, will use client filter');
+        // console.log('⚠️ PM has no assigned sites, will use client filter');
         siteFilter = { clientId };
       }
     } else {
@@ -961,8 +961,8 @@ export const getanalytics = async (req, res, next) => {
         startDate.setDate(now.getDate() - 30);
     }
 
-    console.log('📅 Start date:', startDate);
-    console.log('📅 End date:', now);
+    // console.log('📅 Start date:', startDate);
+    // console.log('📅 End date:', now);
 
     /* ======================================================
        GET TRIPS
@@ -972,14 +972,14 @@ export const getanalytics = async (req, res, next) => {
       entryAt: { $gte: startDate, $lte: now }
     };
 
-    console.log('🔍 Analytics query:', JSON.stringify(query, null, 2));
+    // console.log('🔍 Analytics query:', JSON.stringify(query, null, 2));
 
     const trips = await Trip.find(query)
       .populate('vendorId', 'name')
       .populate('siteId', 'name')
       .lean();
 
-    console.log(`📊 Found ${trips.length} trips for analytics`);
+    // console.log(`📊 Found ${trips.length} trips for analytics`);
 
     const totalTrips = trips.length;
 
@@ -1046,8 +1046,8 @@ export const getanalytics = async (req, res, next) => {
         // Format: "11:00 AM - 12:00 PM"
         peakHours = `${peakHour.hour}:00 ${peakHour.period} - ${nextHour.hour}:00 ${nextHour.period}`;
         
-        console.log(`🕐 Peak hours detected: ${peakHourIndex}:00 (${maxTrips} trips)`);
-        console.log(`🕐 Converted to: ${peakHours}`);
+        // console.log(`🕐 Peak hours detected: ${peakHourIndex}:00 (${maxTrips} trips)`);
+        // console.log(`🕐 Converted to: ${peakHours}`);
       }
     }
 
@@ -1139,15 +1139,15 @@ export const getanalytics = async (req, res, next) => {
       weeklyData
     };
 
-    console.log('📊 Analytics response:', {
-      totalTrips,
-      avgDuration,
-      peakHours,
-      utilizationRate,
-      topVendorsCount: topVendors.length,
-      topSitesCount: topSites.length,
-      weeklyDataSummary: weeklyData.map(d => `${d.day}:${d.trips}`).join(', ')
-    });
+    // console.log('📊 Analytics response:', {
+    //   totalTrips,
+    //   avgDuration,
+    //   peakHours,
+    //   utilizationRate,
+    //   topVendorsCount: topVendors.length,
+    //   topSitesCount: topSites.length,
+    //   weeklyDataSummary: weeklyData.map(d => `${d.day}:${d.trips}`).join(', ')
+    // });
     
     res.json(response);
 
@@ -1157,7 +1157,7 @@ export const getanalytics = async (req, res, next) => {
     
     // Test data with 12-hour format
     if (process.env.NODE_ENV === 'development') {
-      console.log('⚠️ Sending test data due to error');
+      // console.log('⚠️ Sending test data due to error');
       res.json({
         totalTrips: 1567,
         avgDuration: '4h 30m',

@@ -19,13 +19,13 @@ export const getTripHistory = async (req, res) => {
     const siteId = req.user?.siteId || req.query.siteId;
     const clientId = req.user?.clientId;
 
-    console.log("🚗 Get trip history request:", {
-      siteId,
-      period,
-      userId: req.user?._id,
-      userRole: req.user?.role,
-      filters: { status, vehicleNumber, vendorId, startDate, endDate },
-    });
+    // console.log("🚗 Get trip history request:", {
+    //   siteId,
+    //   period,
+    //   userId: req.user?._id,
+    //   userRole: req.user?.role,
+    //   filters: { status, vehicleNumber, vendorId, startDate, endDate },
+    // });
 
     if (!siteId && !clientId) {
       return res.status(400).json({
@@ -80,7 +80,7 @@ export const getTripHistory = async (req, res) => {
 
     Object.assign(query, dateFilter);
 
-    console.log("🔍 Querying trips with:", query);
+    // console.log("🔍 Querying trips with:", query);
 
     // Query trips with proper population
     const trips = await Trip.find(query)
@@ -207,10 +207,10 @@ export const getTripHistory = async (req, res) => {
       };
     });
 
-    console.log("✅ Trip history formatted:", {
-      count: formattedTrips.length,
-      sample: formattedTrips[0],
-    });
+    // console.log("✅ Trip history formatted:", {
+    //   count: formattedTrips.length,
+    //   sample: formattedTrips[0],
+    // });
 
     res.json({
       success: true,
