@@ -107,3 +107,21 @@ export const readPlate = async (req, res) => {
     });
   }
 };
+export const getAllPlates = async (req, res) => {
+  try {
+    const plates = await Plate.find().sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: plates.length,
+      data: plates,
+    });
+  } catch (error) {
+    console.error("❌ Error fetching plate history:", error);
+
+    return res.status(500).json({
+      success: false,
+      error: "Failed to fetch plate history",
+    });
+  }
+};
