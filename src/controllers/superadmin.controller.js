@@ -388,7 +388,7 @@ export const getAuditLogs = async (req, res, next) => {
 export const createClient = async (req, res, next) => {
   try {
     const {
-      name,          // ✅ client name
+      clientname,          // ✅ client name
       companyName,
       email,
       phone,
@@ -410,7 +410,7 @@ export const createClient = async (req, res, next) => {
       password || Math.random().toString(36).slice(-8);
 
     const client = await Client.create({
-      name,                 // ✅ FIXED
+      clientname,                 // ✅ FIXED
       companyName,
       email,
       phone,
@@ -535,7 +535,7 @@ export const createDevice = async (req, res) => {
       notes
     } = req.body;
 
-    console.log("Received data:", req.body); // 调试用
+    // console.log("Received data:", req.body); // 调试用/
 
     // ✅ 更新验证逻辑，包含 deviceName
     if (!clientId || !deviceType || !serialNumber || !deviceName) {

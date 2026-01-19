@@ -13,7 +13,7 @@ const clientSchema = new mongoose.Schema(
     },
 
     // ✅ unified name (frontend uses this)
-    name: {
+    clientname: {
       type: String,
       trim: true,
     },
