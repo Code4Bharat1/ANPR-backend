@@ -27,10 +27,10 @@ const mediaSchema = new mongoose.Schema(
 const tripSchema = new mongoose.Schema(
   {
     // Core IDs
-    // tripId: {
-    //   type: String,
-    //   unique: true
-    // }, 
+    tripId: {
+      type: String,
+      unique: true
+    }, 
     clientId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Client",
@@ -151,13 +151,13 @@ tripSchema.virtual('exitTime').get(function () {
 });
 
 // // Auto-generate tripId before save
-// tripSchema.pre('save', async function (next) {
-//   if (!this.tripId) {
-//     const count = await mongoose.model('Trip').countDocuments();
-//     this.tripId = `TR-${String(count + 1).padStart(6, '0')}`;
-//   }
-//   next();
-// });
+tripSchema.pre('save', async function (next) {
+  if (!this.tripId) {
+    const count = await mongoose.model('Trip').countDocuments();
+    this.tripId = `TR-${String(count + 1).padStart(6, '0')}`;
+  }
+  next();
+});
 
 // Index for better query performance
 tripSchema.index({ siteId: 1, status: 1 });
