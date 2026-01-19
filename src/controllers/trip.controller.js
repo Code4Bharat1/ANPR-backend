@@ -549,7 +549,7 @@ export const exitVehicle = async (req, res) => {
       });
     }
 
-    const vehicle = await Vehicle.findById(vehicleId);
+    const vehicle = await Trip.findById({ _id : vehicleId});
 
     if (!vehicle) {
       return res.status(404).json({
@@ -558,7 +558,7 @@ export const exitVehicle = async (req, res) => {
       });
     }
 
-    if (!vehicle.isInside) {
+    if (vehicle.isInside) {
       return res.json({
         success: true,
         message: "Vehicle already exited",
@@ -570,7 +570,7 @@ export const exitVehicle = async (req, res) => {
     }
 
     const trip = await Trip.findOne({
-      vehicleId,
+      _id : vehicleId,
       status: { $ne: "EXITED" },
     }).sort({ entryAt: -1 });
 

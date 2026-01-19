@@ -58,10 +58,12 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(cookieParser());
 
+app.set("trust proxy", 1);
+
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 1000,               // ⬅️ pehle 100 tha
+    max: 500,               // ⬅️ pehle 100 tha
     standardHeaders: true,
     legacyHeaders: false,
   })
