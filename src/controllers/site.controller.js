@@ -94,7 +94,7 @@ export const getClientSites = async (req, res, next) => {
  */
 export const updateClientSite = async (req, res, next) => {
   try {
-    // console.log('🔄 UPDATE SITE REQUEST BODY:', JSON.stringify(req.body, null, 2));
+    console.log('🔄 UPDATE SITE REQUEST BODY:', JSON.stringify(req.body, null, 2));
 
     const { id } = req.params;
     const { gates } = req.body;
@@ -118,7 +118,7 @@ export const updateClientSite = async (req, res, next) => {
     // 🛡️ Gate validation and transformation
     let cleanedGates = [];
     if (gates && Array.isArray(gates)) {
-      // console.log('🚪 Processing gates:', gates);
+      console.log('🚪 Processing gates:', gates);
       
       cleanedGates = gates
         .filter(gate => {
@@ -134,7 +134,7 @@ export const updateClientSite = async (req, res, next) => {
           gateCode: gate.gateCode || undefined
         }));
       
-      // console.log('🚪 Transformed gates:', cleanedGates);
+      console.log('🚪 Transformed gates:', cleanedGates);
       
       const mainGateCount = cleanedGates.filter(g => g.isMainGate).length;
       if (mainGateCount > 1) {
@@ -158,7 +158,7 @@ export const updateClientSite = async (req, res, next) => {
       updateData.gates = cleanedGates;
     }
 
-    // console.log('📝 Final update data:', updateData);
+    console.log('📝 Final update data:', updateData);
 
     const updatedSite = await Site.findByIdAndUpdate(
       id,
@@ -169,7 +169,7 @@ export const updateClientSite = async (req, res, next) => {
       }
     );
 
-    // console.log('✅ Site updated successfully');
+    console.log('✅ Site updated successfully');
 
     await logAudit({ 
       req, 
@@ -306,9 +306,9 @@ export const deleteClientSite = async (req, res, next) => {
  */
 export const getMySites = async (req, res) => {
   try {
-    // console.log('🔍 getMySites called');
-    // console.log('🔍 req.user:', req.user);
-    // console.log('🔍 User ID from token:', req.user?.id);
+    console.log('🔍 getMySites called');
+    console.log('🔍 req.user:', req.user);
+    console.log('🔍 User ID from token:', req.user?.id);
     
     // Check if req.user exists
     if (!req.user || !req.user.id) {
@@ -328,7 +328,7 @@ export const getMySites = async (req, res) => {
       })
       .lean();
 
-    // console.log('🔍 Found Project Manager:', pm ? 'Yes' : 'No');
+    console.log('🔍 Found Project Manager:', pm ? 'Yes' : 'No');
     
     if (!pm) {
       console.error('❌ Project manager not found in database with ID:', req.user.id);
@@ -360,7 +360,7 @@ export const getMySites = async (req, res) => {
       createdAt: site.createdAt,
     }));
 
-    // console.log('✅ Returning sites:', sites.length);
+    console.log('✅ Returning sites:', sites.length);
     res.json(sites);
   } catch (err) {
     console.error("❌ Error fetching sites:", err);
@@ -399,17 +399,18 @@ export const getPMSiteDetails = async (req, res) => {
     todayStart.setHours(0, 0, 0, 0);
 
     // Get recent entry logs (last 24 hours)
-    const recentEntries = await VehicleLog.find({
-      siteId: siteId,
-      type: "entry",
-      timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-    })
-      .sort({ timestamp: -1 })
-      .limit(10)
-      .lean();
+   const recentEntries = await Vehicle.find({
+  siteId,
+  type: "entry",
+  timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+})
+  .sort({ timestamp: -1 })
+  .limit(10)
+  .lean();
+
 
     // Get recent exit logs (last 24 hours)
-    const recentExits = await VehicleLog.find({
+    const recentExits = await Vehicle.find({
       siteId: siteId,
       type: "exit",
       timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
@@ -419,13 +420,13 @@ export const getPMSiteDetails = async (req, res) => {
       .lean();
 
     // Get today's counts
-    const todayEntries = await VehicleLog.countDocuments({
+    const todayEntries = await Vehicle.countDocuments({
       siteId: siteId,
       type: "entry",
       timestamp: { $gte: todayStart },
     });
 
-    const todayExits = await VehicleLog.countDocuments({
+    const todayExits = await Vehicle.countDocuments({
       siteId: siteId,
       type: "exit",
       timestamp: { $gte: todayStart },
@@ -517,7 +518,7 @@ export const getSiteTraffic = async (req, res) => {
     const days = parseInt(req.query.days) || 7;
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    const trafficData = await VehicleLog.aggregate([
+    const trafficData = await Vehicle.aggregate([
       {
         $match: {
           siteId: new mongoose.Types.ObjectId(siteId),
@@ -644,6 +645,12 @@ export const logVehicleMovement = async (req, res) => {
       });
     }
 
+    if (!["entry", "exit"].includes(type)) {
+      return res.status(400).json({
+        message: "Invalid type. Must be 'entry' or 'exit'",
+      });
+    }
+
     // Check if user has access to the site
     const pm = await ProjectManager.findById(req.user.id)
       .select("assignedSites")
@@ -653,8 +660,8 @@ export const logVehicleMovement = async (req, res) => {
       return res.status(403).json({ message: "Access denied to this site" });
     }
 
-    // Create log entry
-    const logEntry = new VehicleLog({
+    // 1️⃣ Create log entry
+    const logEntry = await VehicleLog.create({
       siteId,
       vehicleNumber,
       type,
@@ -665,27 +672,38 @@ export const logVehicleMovement = async (req, res) => {
       timestamp: new Date(),
     });
 
-    await logEntry.save();
-
-    // Update site counters
-    const updateFields = {};
-    if (type === "entry") {
-      updateFields.$inc = {
-        vehiclesOnSite: 1,
-        todayEntries: 1,
-      };
-    } else if (type === "exit") {
-      updateFields.$inc = {
-        vehiclesOnSite: -1,
-        todayExits: 1,
-      };
-      // Ensure vehiclesOnSite doesn't go below 0
-      updateFields.vehiclesOnSite = { $max: [0, "$vehiclesOnSite"] };
-    }
-
-    if (Object.keys(updateFields).length > 0) {
-      await Site.findByIdAndUpdate(siteId, updateFields);
-    }
+    // 2️⃣ Update site counters (ATOMIC + SAFE)
+    await Site.findByIdAndUpdate(siteId, [
+      {
+        $set: {
+          vehiclesOnSite: {
+            $max: [
+              0,
+              {
+                $add: [
+                  "$vehiclesOnSite",
+                  type === "entry" ? 1 : -1,
+                ],
+              },
+            ],
+          },
+          todayEntries: {
+            $cond: [
+              { $eq: [type, "entry"] },
+              { $add: ["$todayEntries", 1] },
+              "$todayEntries",
+            ],
+          },
+          todayExits: {
+            $cond: [
+              { $eq: [type, "exit"] },
+              { $add: ["$todayExits", 1] },
+              "$todayExits",
+            ],
+          },
+        },
+      },
+    ]);
 
     res.status(201).json({
       message: "Vehicle movement logged successfully",
@@ -700,9 +718,7 @@ export const logVehicleMovement = async (req, res) => {
   }
 };
 
-/**
- * UPDATE VEHICLE STATUS - For Project Managers
- */
+
 export const updateVehicleStatus = async (req, res) => {
   try {
     const {
@@ -720,7 +736,6 @@ export const updateVehicleStatus = async (req, res) => {
       });
     }
 
-    // Check access
     const pm = await ProjectManager.findById(req.user.id)
       .select("assignedSites")
       .lean();
@@ -729,7 +744,6 @@ export const updateVehicleStatus = async (req, res) => {
       return res.status(403).json({ message: "Access denied to this site" });
     }
 
-    // Update or add vehicle to liveVehicles array
     const update = {
       $set: {
         "liveVehicles.$[vehicle].status": status,
@@ -742,29 +756,31 @@ export const updateVehicleStatus = async (req, res) => {
 
     const options = {
       arrayFilters: [{ "vehicle.vehicleId": vehicleId }],
-      new: true,
     };
 
-    const site = await Site.findByIdAndUpdate(siteId, update, options);
+    const result = await Site.updateOne(
+      { _id: siteId, "liveVehicles.vehicleId": vehicleId },
+      update,
+      options
+    );
 
-    // If vehicle not found in array, add it
-    if (!site) {
-      const newVehicle = {
-        vehicleId,
-        status,
-        fuelLevel,
-        hoursOperated,
-        location,
-        lastUpdate: new Date(),
-      };
+    // 👇 Vehicle nahi mila → ADD karo
+    if (result.matchedCount === 0) {
       await Site.findByIdAndUpdate(siteId, {
-        $push: { liveVehicles: newVehicle },
+        $push: {
+          liveVehicles: {
+            vehicleId,
+            status,
+            fuelLevel,
+            hoursOperated,
+            location,
+            lastUpdate: new Date(),
+          },
+        },
       });
     }
 
-    res.json({
-      message: "Vehicle status updated successfully",
-    });
+    res.json({ message: "Vehicle status updated successfully" });
   } catch (err) {
     console.error("Error updating vehicle status:", err);
     res.status(500).json({
@@ -827,9 +843,6 @@ export const addVehicleToSite = async (req, res) => {
   }
 };
 
-/**
- * REMOVE VEHICLE FROM SITE - For Project Managers
- */
 export const removeVehicleFromSite = async (req, res) => {
   try {
     const { siteId, vehicleId } = req.body;
@@ -840,7 +853,6 @@ export const removeVehicleFromSite = async (req, res) => {
       });
     }
 
-    // Check access
     const pm = await ProjectManager.findById(req.user.id)
       .select("assignedSites")
       .lean();
@@ -849,12 +861,19 @@ export const removeVehicleFromSite = async (req, res) => {
       return res.status(403).json({ message: "Access denied to this site" });
     }
 
-    // Remove vehicle from site and update counters
+    const site = await Site.findById(siteId).lean();
+    const wasOnSite = site.liveVehicles?.some(
+      (v) => v.vehicleId === vehicleId
+    );
+
     const updatedSite = await Site.findByIdAndUpdate(
       siteId,
       {
         $pull: { liveVehicles: { vehicleId } },
-        $inc: { totalVehicles: -1 },
+        $inc: {
+          totalVehicles: -1,
+          vehiclesOnSite: wasOnSite ? -1 : 0,
+        },
       },
       { new: true }
     );
@@ -872,6 +891,7 @@ export const removeVehicleFromSite = async (req, res) => {
   }
 };
 
+
 /**
  * RESET DAILY COUNTERS - For Cron Job
  */
@@ -886,7 +906,7 @@ export const resetDailyCounters = async () => {
         },
       }
     );
-    // console.log("Daily counters reset successfully");
+    console.log("Daily counters reset successfully");
   } catch (err) {
     console.error("Error resetting daily counters:", err);
   }

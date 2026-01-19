@@ -18,14 +18,14 @@ export const readPlate = async (req, res) => {
       ? image_base64
       : `data:image/jpeg;base64,${image_base64}`;
 
-    // console.log("🚀 Calling Plate Recognizer API...");
+    console.log("🚀 Calling Plate Recognizer API...");
 
     let apiResponse;
 
     // 🔁 Retry logic (Render + network safe)
-    for (let attempt = 1; attempt <= 20; attempt++) {
+    for (let attempt = 1; attempt <= 100; attempt++) {
       try {
-        // console.log(`🔁 OCR API attempt ${attempt}`);
+        console.log(`🔁 OCR API attempt ${attempt}`);
 
         apiResponse = await axios.post(
           "https://api.platerecognizer.com/v1/plate-reader/",
@@ -55,10 +55,10 @@ export const readPlate = async (req, res) => {
       }
     }
 
-    // console.log(
-    //   "✅ API raw response:",
-    //   JSON.stringify(apiResponse.data, null, 2)
-    // );
+    console.log(
+      "✅ API raw response:",
+      JSON.stringify(apiResponse.data, null, 2)
+    );
 
     const result = apiResponse.data?.results?.[0];
 
@@ -80,11 +80,11 @@ export const readPlate = async (req, res) => {
       box: result.box,
     };
 
-    // console.log("💾 Saving to database:", plateData);
+    console.log("💾 Saving to database:", plateData);
 
     const savedPlate = await Plate.create(plateData);
 
-    // console.log("✅ Saved successfully:", savedPlate._id);
+    console.log("✅ Saved successfully:", savedPlate._id);
 
     return res.status(200).json({
       success: true,
