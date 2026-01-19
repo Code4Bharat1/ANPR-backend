@@ -522,105 +522,98 @@ export const getTripById = async (req, res) => {
  */
 export const exitVehicle = async (req, res) => {
   try {
-    const { vehicleId, exitTime, exitMedia, exitNotes } = req.body;
+    const {
+      vehicleId,
+      exitTime,
+      exitMedia,
+      exitNotes,
+      exitLoadStatus,
+      returnMaterialType,
+      papersVerified,
+      physicalInspection,
+      materialMatched,
+    } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(vehicleId)) {
+    // 1️⃣ Validate vehicleId
+    if (!vehicleId || !mongoose.Types.ObjectId.isValid(vehicleId)) {
       return res.status(400).json({
         success: false,
         message: "Invalid vehicleId",
       });
     }
 
+    // 2️⃣ Fetch vehicle
     const vehicle = await Vehicle.findById(vehicleId);
-
     if (!vehicle) {
-  return res.status(404).json({
-    success: false,
-    message: "Vehicle not found",
-  });
-}
+      return res.status(404).json({
+        success: false,
+        message: "Vehicle not found",
+      });
+    }
 
-if (!vehicle.isInside) {
-  return res.json({
-    success: true,
-    message: "Vehicle already exited",
-    data: {
+    // 3️⃣ Already exited guard
+    if (!vehicle.isInside) {
+      return res.status(409).json({
+        success: false,
+        message: "Vehicle already exited",
+        data: {
+          vehicleId,
+          exitedAt: vehicle.lastExitAt,
+        },
+      });
+    }
+
+    // 4️⃣ Find active trip (SAFE QUERY)
+    let trip = await Trip.findOne({
       vehicleId,
-      exitedAt: vehicle.lastExitAt,
-    },
-  });
-}
-
-
-    const trip = await Trip.findOne({
-      vehicleId,
-      status: { $ne: "EXITED" },
+      status: { $in: ["INSIDE", "ACTIVE"] },
     }).sort({ entryAt: -1 });
-
-   if (!trip) {
-  console.warn("⚠️ Recovering missing trip for vehicle:", vehicleId);
-
-  const recoveredTrip = await Trip.create({
-    clientId: vehicle.clientId,
-    siteId: vehicle.siteId,
-    vendorId: vehicle.vendorId,
-    vehicleId: vehicle._id,
-    plateText: vehicle.vehicleNumber,
-    entryAt: vehicle.lastEntryAt || new Date(),
-    entryGate: "Recovered Entry",
-    entryMedia: { photos: [] },
-    status: "INSIDE",
-    createdBy: req.user._id,
-  });
-
-  const exitAt = exitTime ? new Date(exitTime) : new Date();
-
-  const formattedExitMedia = {
-    photos: exitMedia?.photos
-      ? Object.values(exitMedia.photos)
-      : [],
-    video: exitMedia?.video || "",
-  };
-
-  recoveredTrip.status = "EXITED";
-  recoveredTrip.exitAt = exitAt;
-  recoveredTrip.exitGate = "Manual Exit (Recovered)";
-  recoveredTrip.exitMedia = formattedExitMedia;
-  recoveredTrip.notes = exitNotes || "";
-  await recoveredTrip.save();
-
-  vehicle.isInside = false;
-  vehicle.lastExitAt = exitAt;
-  await vehicle.save();
-
-  return res.json({
-    success: true,
-    message: "Vehicle exited successfully (recovered)",
-    data: {
-      tripId: recoveredTrip.tripId,
-      exitAt,
-    },
-  });
-}
-
 
     const exitAt = exitTime ? new Date(exitTime) : new Date();
 
+    // 5️⃣ Normalize exit media (❗ DO NOT convert to array)
     const formattedExitMedia = {
-      photos: exitMedia?.photos
-        ? Object.values(exitMedia.photos)
-        : [],
+      photos: exitMedia?.photos || {},
       video: exitMedia?.video || "",
     };
 
+    // 6️⃣ Recover trip if missing
+    if (!trip) {
+      console.warn("⚠️ Recovering missing trip for vehicle:", vehicleId);
+
+      trip = await Trip.create({
+        clientId: vehicle.clientId,
+        siteId: vehicle.siteId,
+        vendorId: vehicle.vendorId,
+        vehicleId: vehicle._id,
+        plateText: vehicle.vehicleNumber,
+        entryAt: vehicle.lastEntryAt || new Date(),
+        entryGate: "Recovered Entry",
+        entryMedia: { photos: {} },
+        status: "INSIDE",
+        createdBy: req.user._id,
+      });
+    }
+
+    // 7️⃣ Update trip
     trip.status = "EXITED";
     trip.exitAt = exitAt;
-    trip.exitGate = "Manual Exit";
+    trip.exitGate = trip.exitGate || "Manual Exit";
     trip.exitMedia = formattedExitMedia;
-    trip.notes = exitNotes || trip.notes;
+    trip.notes = exitNotes || "";
+
+    // 8️⃣ Save exit checklist (frontend fields)
+    trip.exitChecklist = {
+      exitLoadStatus,
+      returnMaterialType,
+      papersVerified,
+      physicalInspection,
+      materialMatched,
+    };
 
     await trip.save();
 
+    // 9️⃣ Update vehicle
     vehicle.isInside = false;
     vehicle.lastExitAt = exitAt;
     await vehicle.save();
@@ -629,19 +622,20 @@ if (!vehicle.isInside) {
       success: true,
       message: "Vehicle exited successfully",
       data: {
-        tripId: trip.tripId,
+        tripId: trip._id,
         exitAt,
       },
     });
 
   } catch (error) {
     console.error("❌ Exit error:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Exit failed",
     });
   }
 };
+
 
 
 /**

@@ -23,7 +23,7 @@ export const readPlate = async (req, res) => {
     let apiResponse;
 
     // 🔁 Retry logic (Render + network safe)
-    for (let attempt = 1; attempt <= 100; attempt++) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         console.log(`🔁 OCR API attempt ${attempt}`);
 

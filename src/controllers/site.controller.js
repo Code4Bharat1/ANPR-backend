@@ -661,7 +661,7 @@ export const logVehicleMovement = async (req, res) => {
     }
 
     // 1️⃣ Create log entry
-    const logEntry = await VehicleLog.create({
+    const logEntry = await Vehicle.create({
       siteId,
       vehicleNumber,
       type,
