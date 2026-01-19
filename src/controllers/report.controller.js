@@ -495,67 +495,43 @@ export const exportReports = async (req, res, next) => {
 export const getTripReportsPM = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    
-    // console.log('👤 PM Reports - User ID:', req.user.id);
-    // console.log('👤 PM Reports - User role:', req.user.role);
 
-    // 1. Get the project manager by USER ID
-    let projectManager;
-    let assignedSites = [];
-    
-    if (req.user.role === 'project_manager') {
-      // ✅ FIXED: Find by user ID (from JWT token)
-      projectManager = await ProjectManager.findOne({ 
-        _id: req.user.id  // ← Use ID instead of email
-      }).populate('assignedSites', '_id name siteId');
-      
-      // console.log('🔍 Query used:', { _id: req.user.id });
-      // console.log('🏢 Project Manager found:', projectManager?._id);
-      
-      if (projectManager) {
-        // console.log('✅ PM Details:');
-        // console.log('- PM ID:', projectManager._id);
-        // console.log('- PM Name:', projectManager.name);
-        // console.log('- PM Email:', projectManager.email);
-        // console.log('- Assigned Sites Count:', projectManager.assignedSites?.length || 0);
-        
-        assignedSites = projectManager.assignedSites || [];
-      } else {
-        // console.log('❌ No Project Manager found with ID:', req.user.id);
-      }
-    } else {
-      return res.status(403).json({ 
-        message: "Access denied. Only Project Managers can access this." 
+    if (req.user.role !== 'project_manager') {
+      return res.status(403).json({
+        message: "Access denied. Only Project Managers can access this."
       });
     }
-    
-    // Get site IDs from assigned sites
-    const siteIds = assignedSites.map(site => site._id);
-    
-    // console.log('📍 Assigned Sites count:', siteIds.length);
 
-    // 2. Build filter based on sites
-    const filter = {};
-    
-    if (siteIds.length > 0) {
-      filter.siteId = { $in: siteIds };
-      // console.log('📍 Filtering by sites:', siteIds);
-    } else {
-      // console.log('⚠️ No sites assigned to PM, returning empty array');
+    // ✅ FIX: Find PM by EMAIL (single source of truth)
+    const projectManager = await ProjectManager.findOne({
+      email: req.user.email
+    }).populate('assignedSites', '_id name siteId');
+
+    if (!projectManager) {
+      return res.status(404).json({
+        message: "Project Manager not found"
+      });
+    }
+
+    const siteIds = projectManager.assignedSites.map(site => site._id);
+
+    if (siteIds.length === 0) {
       return res.json([]);
     }
 
-    // 3. Date range filter
+    // Build filter
+    const filter = {
+      siteId: { $in: siteIds }
+    };
+
+    // ✅ Safer date filter
     if (startDate && endDate) {
       filter.entryAt = {
-        $gte: new Date(startDate),
-        $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999))
+        $gte: new Date(`${startDate}T00:00:00.000Z`),
+        $lte: new Date(`${endDate}T23:59:59.999Z`)
       };
     }
 
-    // console.log('🔍 Final filter:', JSON.stringify(filter, null, 2));
-
-    // 4. Get trips - Make sure Trip model is imported
     const reports = await Trip.find(filter)
       .populate('vehicleId', 'vehicleNumber')
       .populate('vendorId', 'name email phone')
@@ -565,21 +541,15 @@ export const getTripReportsPM = async (req, res) => {
       .populate('projectManagerId', 'name email')
       .sort({ entryAt: -1 });
 
-    // console.log(`📊 Found ${reports.length} trips for PM ${projectManager?.email || req.user.id}`);
-
-    // Helper function to map status
-    const mapStatus = (status) => {
-      const statusMap = {
-        'INSIDE': 'active',
-        'EXITED': 'completed',
-        'active': 'active',
-        'completed': 'completed',
-        'cancelled': 'cancelled'
-      };
-      return statusMap[status] || status || 'unknown';
+    // Normalize status
+    const mapStatus = (status = '') => {
+      const s = status.toLowerCase();
+      if (s === 'inside' || s === 'active') return 'active';
+      if (s === 'exited' || s === 'completed') return 'completed';
+      if (s === 'cancelled') return 'cancelled';
+      return 'unknown';
     };
 
-    // 5. Format response
     const formattedReports = reports.map(trip => ({
       _id: trip._id,
       tripId: trip.tripId || 'N/A',
@@ -605,17 +575,17 @@ export const getTripReportsPM = async (req, res) => {
       notes: trip.notes
     }));
 
-    // console.log(`📤 Sending ${formattedReports.length} reports to frontend`);
-    res.json(formattedReports);
-    
+    return res.json(formattedReports);
+
   } catch (err) {
     console.error('❌ Error in getTripReportsPM:', err);
-    res.status(500).json({ 
-      message: "Error fetching trip reports", 
-      error: err.message 
+    return res.status(500).json({
+      message: "Error fetching trip reports",
+      error: err.message
     });
   }
 };
+
 
 /* ======================================================
    EXPORT REPORTS TO EXCEL (Project Manager Reports Page)
@@ -743,15 +713,21 @@ export const exportReportsToExcelPM = async (req, res) => {
     }
 
     // Calculate duration helper
-    const calculateDuration = (entryAt, exitAt) => {
-      if (!entryAt || !exitAt) return '-';
-      const diff = new Date(exitAt) - new Date(entryAt);
-      if (diff < 0) return '-';
-      
-      const hours = Math.floor(diff / (1000 * 60 * 60));
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      return `${hours}h ${minutes}m`;
-    };
+  const calculateDuration = (entryAt, exitAt) => {
+  if (!entryAt || !exitAt) return '-';
+
+  const entry = new Date(entryAt).getTime();
+  const exit = new Date(exitAt).getTime();
+
+  if (!entry || !exit || exit <= entry) return '-';
+
+  const diff = exit - entry;
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+  return `${hours}h ${minutes}m`;
+};
+
 
     // Helper function for status display
     const getStatusDisplay = (status) => {
@@ -774,11 +750,11 @@ export const exportReportsToExcelPM = async (req, res) => {
       // 'Trip ID': report.tripId || 'N/A',
       'Vehicle': report.plateText || report.vehicleId?.vehicleNumber || 'N/A',
       'Vendor': report.vendorId?.name || 'N/A',
-      'Client': report.clientId?.name || 'N/A',
+      // 'Client': report.clientId?.name || 'N/A',
       'Site': report.siteId?.name || 'N/A',
       'Location': report.siteId?.location || 'N/A',
-      'Project Manager': report.projectManagerId?.name || 'N/A',
-      'Supervisor': report.supervisorId?.name || 'N/A',
+      // 'Project Manager': report.projectManagerId?.name || 'N/A',
+      // 'Supervisor': report.supervisorId?.name || 'N/A',
       'Load Status': report.loadStatus || 'N/A',
       'Entry Time': report.entryAt ? new Date(report.entryAt).toLocaleString('en-IN', {
         day: '2-digit',

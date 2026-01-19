@@ -715,6 +715,9 @@ export const createManualTrip = async (req, res) => {
       siteId,
     });
 
+    console.log(vehicle);
+    
+
     if (vehicle?.isInside) {
       return res.status(409).json({
         success: false,
