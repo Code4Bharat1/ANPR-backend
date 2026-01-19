@@ -468,85 +468,90 @@ export const supervisorDashboard = async (req, res, next) => {
 };
 
 /**
- * GET ACTIVE VEHICLES
+ * @desc   Get all active vehicles (trips with status INSIDE)
+ * @route  GET /api/supervisor/vehicles/active
+ * @access Supervisor, PM, Admin
  */
-export const getActiveVehicles = async (req, res, next) => {
+export const getActiveVehicles = async (req, res) => {
   try {
-    const siteId = req.query.siteId || req.user?.siteId;
+    const { siteId } = req.user;
 
     if (!siteId) {
       return res.status(400).json({
         success: false,
-        message: "Site ID is required",
+        message: "User not properly configured (missing siteId)",
       });
     }
 
-    const OVERSTAY_MINUTES = 240;
-
-    const trips = await Trip.find({
-      siteId: new mongoose.Types.ObjectId(siteId),
-      status: { $in: ["INSIDE", "active"] },
+    // Fetch all trips with status INSIDE
+    const activeTrips = await Trip.find({
+      siteId,
+      status: 'INSIDE'
     })
-      .populate("vendorId", "name")
-      .populate(
-        "vehicleId",
-        "vehicleNumber vehicleType driverName driverPhone"
-      )
-      .sort({ entryAt: -1 })
-      .lean();
+    .populate('vehicleId', 'vehicleNumber vehicleType')
+    .populate('vendorId', 'name')
+    .sort({ entryAt: -1 });
 
-    const now = Date.now();
+    console.log(`📊 Found ${activeTrips.length} active trips`);
+    
+    // Map to format expected by frontend
+    const formattedTrips = activeTrips.map(trip => ({
+      _id: trip._id,
+      tripId: trip.tripId,
+      vehicleNumber: trip.vehicleId?.vehicleNumber || trip.plateText,
+      vehicleType: trip.vehicleId?.vehicleType || 'TRUCK',
+      vendor: trip.vendorId?.name || 'Unknown',
+      driver: trip.driverName || 'N/A',
+      entryAt: trip.entryAt,
+      entryGate: trip.entryGate,
+      status: trip.status.toLowerCase(),
+      loadStatus: trip.loadStatus,
+      purpose: trip.purpose,
+      notes: trip.notes,
+      
+      // 🔥 CRITICAL: Include media
+      entryMedia: trip.entryMedia || {
+        anprImage: null,
+        photos: {
+          frontView: null,
+          backView: null,
+          loadView: null,
+          driverView: null
+        },
+        video: null,
+        challanImage: null
+      },
+      
+      exitMedia: trip.exitMedia || {
+        anprImage: null,
+        photos: {
+          frontView: null,
+          backView: null,
+          loadView: null,
+          driverView: null
+        },
+        video: null
+      }
+    }));
 
-    const formatted = trips.map((t) => {
-      const entryTime = new Date(t.entryAt);
-      const durationMinutes = Math.floor(
-        (now - entryTime.getTime()) / (1000 * 60)
-      );
+    // Log sample for debugging
+    if (formattedTrips.length > 0) {
+      console.log('📸 Sample trip media:', formattedTrips[0].entryMedia);
+    }
 
-      return {
-        // 🔑 IDs
-        _id: t._id?.toString(),                  // Trip ID (UI)
-        tripId: t.tripId || "N/A",
-        vehicleId: t.vehicleId?._id?.toString(), // ✅ FIX (Vehicle ID)
-
-        // Vehicle
-        vehicleNumber:
-          t.vehicleId?.vehicleNumber || t.plateText || "Unknown",
-        vehicleType: t.vehicleId?.vehicleType || "Unknown",
-
-        // Relations
-        vendor: t.vendorId?.name || "Unknown",
-
-        // Driver
-        driver: t.vehicleId?.driverName || "N/A",
-        driverPhone: t.vehicleId?.driverPhone || "N/A",
-
-        // Time
-        entryTime: entryTime.toLocaleString(),
-        entryTimeISO: entryTime.toISOString(),
-
-        // Duration
-        duration: `${Math.floor(durationMinutes / 60)}h ${
-          durationMinutes % 60
-        }m`,
-        durationMinutes,
-
-        // Status
-        status: durationMinutes > OVERSTAY_MINUTES ? "overstay" : "loading",
-        loadStatus: t.loadStatus || "FULL",
-        purpose: t.purpose || "N/A",
-        entryGate: t.entryGate || "N/A",
-      };
-    });
-
-    return res.json({
+    res.status(200).json({
       success: true,
-      count: formatted.length,
-      data: formatted,
+      data: formattedTrips,
+      count: formattedTrips.length
     });
-  } catch (err) {
-    console.error("Get active vehicles error:", err);
-    next(err);
+
+  } catch (error) {
+    console.error('❌ Error fetching active vehicles:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch active vehicles",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 

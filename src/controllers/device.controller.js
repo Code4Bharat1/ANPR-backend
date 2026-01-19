@@ -5,7 +5,7 @@ import { logAudit } from "../middlewares/audit.middleware.js";
 
 export const registerDevice = async (req, res, next) => {
   try {
-    console.log("📥 Received device registration request:", req.body); // Add debug
+    // console.log("📥 Received device registration request:", req.body); // Add debug
     
     const { serialNumber, deviceName, deviceType, clientId, siteId, ipAddress, notes } = req.body;
 
@@ -269,20 +269,20 @@ export const listDevices = async (req, res, next) => {
       .sort({ createdAt: -1 });
 
     // Debug: Check what data is coming from database
-    console.log("🔍 Database devices raw data:", devices.length, "devices found");
+    // console.log("🔍 Database devices raw data:", devices.length, "devices found");
     if (devices.length > 0) {
-      console.log("First device raw data:", {
-        _id: devices[0]._id,
-        deviceName: devices[0].deviceName,
-        serialNo: devices[0].serialNo,
-        devicetype: devices[0].devicetype
-      });
+      // console.log("First device raw data:", {
+      //   _id: devices[0]._id,
+      //   deviceName: devices[0].deviceName,
+      //   serialNo: devices[0].serialNo,
+      //   devicetype: devices[0].devicetype
+      // });
     }
 
     const formattedDevices = devices.map(device => formatDeviceResponse(device));
 
     // Debug: Check formatted data
-    console.log("📋 Formatted devices first item:", formattedDevices[0]);
+    // console.log("📋 Formatted devices first item:", formattedDevices[0]);
 
     res.json(formattedDevices);
   } catch (e) {

@@ -500,7 +500,7 @@ export const createDevice = async (req, res) => {
       notes
     } = req.body;
 
-    console.log("Received data:", req.body); // 调试用
+    // console.log("Received data:", req.body); // 调试用
 
     // ✅ 更新验证逻辑，包含 deviceName
     if (!clientId || !deviceType || !serialNumber || !deviceName) {

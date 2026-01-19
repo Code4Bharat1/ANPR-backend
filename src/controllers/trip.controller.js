@@ -18,13 +18,13 @@ export const getTripHistory = async (req, res) => {
     const siteId = req.user?.siteId || req.query.siteId;
     const clientId = req.user?.clientId;
 
-    console.log('🚗 Get trip history request:', {
-      siteId,
-      period,
-      userId: req.user?._id,
-      userRole: req.user?.role,
-      filters: { status, vehicleNumber, vendorId, startDate, endDate }
-    });
+    // console.log('🚗 Get trip history request:', {
+    //   siteId,
+    //   period,
+    //   userId: req.user?._id,
+    //   userRole: req.user?.role,
+    //   filters: { status, vehicleNumber, vendorId, startDate, endDate }
+    // });
 
     if (!siteId && !clientId) {
       return res.status(400).json({
@@ -78,7 +78,7 @@ export const getTripHistory = async (req, res) => {
 
     Object.assign(query, dateFilter);
 
-    console.log('🔍 Querying trips with:', query);
+    // console.log('🔍 Querying trips with:', query);
 
     // Query trips with proper population
     const trips = await Trip.find(query)
@@ -89,16 +89,17 @@ export const getTripHistory = async (req, res) => {
       .sort({ entryAt: -1 })
       .lean();
 
-    console.log('📊 Raw trips from DB:', {
-      count: trips.length,
-      sampleTrip: trips[0] ? {
-        tripId: trips[0].tripId,
-        entryAt: trips[0].entryAt,
-        exitAt: trips[0].exitAt,
-        vehicleId: trips[0].vehicleId,
-        vendorId: trips[0].vendorId
-      } : null
-    });
+    // console.log('📊 Raw trips from DB:', {
+    //   count: trips.length,
+    //   sampleTrip: trips[0] ? {
+    //     tripId: trips[0].tripId,
+    //     entryAt: trips[0].entryAt,
+    //     exitAt: trips[0].exitAt,
+    //     vehicleId: trips[0].vehicleId,
+    //     vendorId: trips[0].vendorId
+    //   } : null
+    // }
+  // );
 
     // Helper function to safely format dates
     const formatDate = (dateValue) => {
@@ -206,10 +207,10 @@ export const getTripHistory = async (req, res) => {
       };
     });
 
-    console.log('✅ Trip history formatted:', {
-      count: formattedTrips.length,
-      sample: formattedTrips[0]
-    });
+    // console.log('✅ Trip history formatted:', {
+    //   count: formattedTrips.length,
+    //   sample: formattedTrips[0]
+    // });
 
     res.json({
       success: true,
@@ -645,8 +646,8 @@ if (!vehicle.isInside) {
 
 
 /**
- * @desc   Create manual trip entry
- * @route  POST /api/trips/manual
+ * @desc   Create manual trip entry (Supervisor/Desktop)
+ * @route  POST /api/supervisor/vehicles/entry
  * @access Supervisor, PM, Admin
  */
 export const createManualTrip = async (req, res) => {
@@ -674,6 +675,9 @@ export const createManualTrip = async (req, res) => {
       notes,
       media,
     } = req.body;
+
+    // console.log('📥 Received trip entry request');
+    // console.log('📸 Media received:', media);
 
     if (!vehicleNumber || !vendorId) {
       return res.status(400).json({
@@ -721,6 +725,62 @@ export const createManualTrip = async (req, res) => {
     // Get site details
     const site = await Site.findById(siteId);
 
+    // 🔥 FIX: Structure entryMedia properly
+    // Handle both old array format and new object format
+    let photosObject = {
+      frontView: null,
+      backView: null,
+      loadView: null,
+      driverView: null
+    };
+
+    if (media?.photos) {
+      if (Array.isArray(media.photos)) {
+        // 🔥 OLD FORMAT: Convert array to object
+        console.warn('⚠️ Received photos as array (old format), converting to object');
+        const photoKeys = ['frontView', 'backView', 'loadView', 'driverView'];
+        media.photos.forEach((photoUrl, index) => {
+          if (photoUrl && photoKeys[index]) {
+            photosObject[photoKeys[index]] = photoUrl;
+          }
+        });
+      } else if (typeof media.photos === 'object') {
+        // 🔥 NEW FORMAT: Already an object with keys
+        // console.log('✅ Received photos as object (new format)');
+        photosObject = {
+          frontView: media.photos.frontView || null,
+          backView: media.photos.backView || null,
+          loadView: media.photos.loadView || null,
+          driverView: media.photos.driverView || null
+        };
+      }
+    }
+
+    // 🔥 Validate that photo keys are file paths, not MongoDB IDs
+    Object.entries(photosObject).forEach(([key, value]) => {
+      if (value) {
+        if (value.length === 24 && !value.includes('/')) {
+          console.error(`❌ INVALID ${key}: Looks like MongoDB ID: ${value}`);
+          console.error('   Expected format: vehicles/entry/photos/123-front.jpg');
+          photosObject[key] = null; // Reset invalid values
+        } else if (!value.includes('/')) {
+          console.error(`❌ INVALID ${key}: Missing folder path: ${value}`);
+          photosObject[key] = null;
+        } else {
+          // console.log(`✅ ${key}: ${value}`);
+        }
+      }
+    });
+
+    const entryMedia = {
+      anprImage: media?.anprImage || null,
+      photos: photosObject,  // 🔥 Object with keys, not array
+      video: media?.video || null,
+      challanImage: media?.challanImage || null,
+    };
+
+    // console.log('📸 Structured entryMedia:', JSON.stringify(entryMedia, null, 2));
+
     // Create trip
     const trip = await Trip.create({
       clientId,
@@ -736,15 +796,13 @@ export const createManualTrip = async (req, res) => {
       status: "INSIDE",
       purpose: purpose || "Manual Entry",
       loadStatus: loadStatus || "FULL",
-      entryMedia: {
-        anprImage: media?.anprImage || "",
-        photos: media?.photos || [],
-        video: media?.video || "",
-        challanImage: media?.challanImage || "",
-      },
+      entryMedia: entryMedia,  // 🔥 Properly structured media
       notes: notes || "",
       createdBy: supervisorId,
     });
+
+    // console.log('✅ Trip created:', trip.tripId);
+    // console.log('📸 Saved entryMedia:', trip.entryMedia);
 
     res.status(201).json({
       success: true,
@@ -753,6 +811,7 @@ export const createManualTrip = async (req, res) => {
         tripId: trip.tripId,
         vehicleId: vehicle._id,
         entryAt: trip.entryAt,
+        entryMedia: trip.entryMedia  // 🔥 Return for verification
       }
     });
   } catch (error) {
@@ -764,7 +823,6 @@ export const createManualTrip = async (req, res) => {
     });
   }
 };
-
 
 /**
  * @desc   Create manual trip entry (Mobile)
@@ -797,14 +855,15 @@ export const createManualTripMobile = async (req, res) => {
       media,
     } = req.body;
 
+    // console.log('📥 Received mobile trip entry request');
+    // console.log('📸 Media received:', media);
+
     if (!vehicleNumber || !vendorId) {
       return res.status(400).json({
         success: false,
         message: "vehicleNumber and vendorId are required",
       });
     }
-
-  
 
     const normalizedVehicleNumber = vehicleNumber.toUpperCase();
 
@@ -848,6 +907,62 @@ export const createManualTripMobile = async (req, res) => {
     // Fetch site for PM assignment
     const site = await Site.findById(siteId);
 
+    // 🔥 FIX: Structure entryMedia properly
+    // Handle both old array format and new object format
+    let photosObject = {
+      frontView: null,
+      backView: null,
+      loadView: null,
+      driverView: null
+    };
+
+    if (media?.photos) {
+      if (Array.isArray(media.photos)) {
+        // 🔥 OLD FORMAT: Convert array to object
+        console.warn('⚠️ Received photos as array (old format), converting to object');
+        const photoKeys = ['frontView', 'backView', 'loadView', 'driverView'];
+        media.photos.forEach((photoUrl, index) => {
+          if (photoUrl && photoKeys[index]) {
+            photosObject[photoKeys[index]] = photoUrl;
+          }
+        });
+      } else if (typeof media.photos === 'object') {
+        // 🔥 NEW FORMAT: Already an object with keys
+        // console.log('✅ Received photos as object (new format)');
+        photosObject = {
+          frontView: media.photos.frontView || null,
+          backView: media.photos.backView || null,
+          loadView: media.photos.loadView || null,
+          driverView: media.photos.driverView || null
+        };
+      }
+    }
+
+    // 🔥 Validate that photo keys are file paths, not MongoDB IDs
+    Object.entries(photosObject).forEach(([key, value]) => {
+      if (value) {
+        if (value.length === 24 && !value.includes('/')) {
+          console.error(`❌ INVALID ${key}: Looks like MongoDB ID: ${value}`);
+          console.error('   Expected format: vehicles/entry/photos/123-front.jpg');
+          photosObject[key] = null; // Reset invalid values
+        } else if (!value.includes('/')) {
+          console.error(`❌ INVALID ${key}: Missing folder path: ${value}`);
+          photosObject[key] = null;
+        } else {
+          // console.log(`✅ ${key}: ${value}`);
+        }
+      }
+    });
+
+    const entryMedia = {
+      anprImage: media?.anprImage || null,
+      photos: photosObject,  // 🔥 Object with keys, not array
+      video: media?.video || null,
+      challanImage: media?.challanImage || null,
+    };
+
+    // console.log('📸 Structured entryMedia:', JSON.stringify(entryMedia, null, 2));
+
     // Create trip
     const trip = await Trip.create({
       clientId,
@@ -863,16 +978,14 @@ export const createManualTripMobile = async (req, res) => {
       status: "INSIDE",
       purpose: purpose || "Manual Entry",
       loadStatus: loadStatus || "FULL",
-      entryMedia: {
-        anprImage: media?.anprImage || "",
-        photos: media?.photos || [],
-        video: media?.video || "",
-        challanImage: media?.challanImage || "",
-      },
+      entryMedia: entryMedia,  // 🔥 Properly structured media
       notes: notes || "",
       createdBy: userId,
       source: "MOBILE",
     });
+
+    // console.log('✅ Trip created:', trip.tripId);
+    // console.log('📸 Saved entryMedia:', trip.entryMedia);
 
     return res.status(201).json({
       success: true,
@@ -881,6 +994,7 @@ export const createManualTripMobile = async (req, res) => {
         tripId: trip.tripId,
         vehicleId: vehicle._id,
         entryAt: trip.entryAt,
+        entryMedia: trip.entryMedia  // 🔥 Return for verification
       },
     });
 

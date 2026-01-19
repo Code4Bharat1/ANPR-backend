@@ -8,7 +8,7 @@ export async function getUploadUrl({ fileName, fileType }) {
     Bucket: process.env.WASABI_BUCKET_NAME,
     Key: key,
     ContentType: fileType,
-    ACL: 'private',
+    // ACL: 'private',
   });
 
   const uploadURL = await getSignedUrl(

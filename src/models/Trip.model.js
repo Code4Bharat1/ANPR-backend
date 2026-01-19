@@ -1,10 +1,25 @@
 import mongoose from "mongoose";
 
+// 🔥 NEW: Proper media schema with object-based photos
 const mediaSchema = new mongoose.Schema(
   {
-    photos: { type: [String], default: [] }, // Array of URLs/base64
-    video: { type: String, default: "" },
-    challanImage: { type: String, required: false },
+    anprImage: { type: String, default: null },
+    photos: {
+      type: {
+        frontView: { type: String, default: null },
+        backView: { type: String, default: null },
+        loadView: { type: String, default: null },
+        driverView: { type: String, default: null }
+      },
+      default: () => ({
+        frontView: null,
+        backView: null,
+        loadView: null,
+        driverView: null
+      })
+    },
+    video: { type: String, default: null },
+    challanImage: { type: String, default: null }
   },
   { _id: false }
 );
@@ -14,7 +29,6 @@ const tripSchema = new mongoose.Schema(
     // Core IDs
     tripId: {
       type: String,
-      // required: true,
       unique: true
     },
     clientId: {
@@ -40,27 +54,24 @@ const tripSchema = new mongoose.Schema(
     supervisorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Supervisor',
-
     },
     projectManagerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-
     },
 
     // Vehicle & ANPR Details
     plateText: {
       type: String,
       required: true,
-      immutable: true // Cannot be edited after creation
+      immutable: true
     },
-    anprImage: { type: String, default: "" },
+    driverName: { type: String, default: "" },
 
     // Load & Trip Details
     loadStatus: {
       type: String,
-      // enum: ["FULL", "PARTIAL", "EMPTY"], 
-      // required: true 
+      enum: ["FULL", "PARTIAL", "EMPTY", "LOADED", "UNLOADED"],
     },
     purpose: String,
     notes: String,
@@ -69,7 +80,7 @@ const tripSchema = new mongoose.Schema(
     entryAt: {
       type: Date,
       required: true,
-      alias: 'entryTime' // Support both field names
+      alias: 'entryTime'
     },
     exitAt: {
       type: Date,
@@ -81,29 +92,46 @@ const tripSchema = new mongoose.Schema(
     entryGate: String,
     exitGate: String,
 
-    // Media Documents
+    // 🔥 NEW: Media with proper photo structure
     entryMedia: {
       type: mediaSchema,
-      required: true
+      default: () => ({
+        anprImage: null,
+        photos: {
+          frontView: null,
+          backView: null,
+          loadView: null,
+          driverView: null
+        },
+        video: null,
+        challanImage: null
+      })
     },
     exitMedia: {
       type: mediaSchema,
-      default: null
+      default: () => ({
+        anprImage: null,
+        photos: {
+          frontView: null,
+          backView: null,
+          loadView: null,
+          driverView: null
+        },
+        video: null
+      })
     },
 
     // Status
     status: {
       type: String,
-      enum: ["INSIDE", "EXITED", "COMPLETED", "CANCELLED"],
+      enum: ["INSIDE", "EXITED", "COMPLETED", "CANCELLED", "OVERSTAY"],
       default: "INSIDE",
-    }
-,
+    },
 
     // Creator Reference
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Supervisor",
-
     },
   },
   {
@@ -132,7 +160,6 @@ tripSchema.pre('save', async function (next) {
 });
 
 // Index for better query performance
-// tripSchema.index({ tripId: 1 });
 tripSchema.index({ siteId: 1, status: 1 });
 tripSchema.index({ vendorId: 1 });
 tripSchema.index({ projectManagerId: 1, entryAt: -1 });
@@ -149,7 +176,7 @@ tripSchema.methods.getDuration = function () {
 
 // Static method to get trip by plate number
 tripSchema.statics.findByPlate = function (plateText) {
-  return this.findOne({ plateText, status: { $in: ['INSIDE', 'active'] } });
+  return this.findOne({ plateText, status: { $in: ['INSIDE', 'EXITED'] } });
 };
 
 export default mongoose.model("Trip", tripSchema);
