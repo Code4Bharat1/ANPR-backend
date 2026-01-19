@@ -14,9 +14,9 @@ export const readPlate = async (req, res) => {
     }
 
     // ✅ Ensure FULL data URL
-    // const imageData = image_base64.startsWith("data:image")
-    //   ? image_base64
-    //   : `data:image/jpeg;base64,${image_base64}`;
+    const imageData = image_base64.startsWith("data:image")
+      ? image_base64
+      : `data:image/jpeg;base64,${image_base64}`;
 
     // console.log("🚀 Calling Plate Recognizer API...");
 
