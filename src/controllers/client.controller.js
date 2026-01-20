@@ -301,6 +301,7 @@ export const getProjectManagers = async (req, res, next) => {
     const projectManagers = await ProjectManager.find({ clientId })
       .select("-password")                 // 🔐 never expose password
       .populate("assignedSites", "name")   // optional
+      .populate("supervisors", "name")   // optional
       .sort({ createdAt: -1 });
 
     res.json({

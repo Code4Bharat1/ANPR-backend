@@ -5,6 +5,7 @@ import Vehicle from "../models/Vehicle.model.js"; // Added missing import
 import Client from "../models/Client.model.js"; // Added missing import
 import Device from "../models/Device.model.js"; // Added missing import
 import mongoose from "mongoose";
+import Trip from "../models/Trip.model.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 
 /* ======================================================
@@ -364,7 +365,7 @@ export const getMySites = async (req, res) => {
   }
 };
 /**
- * GET SITE DETAILS - For Project Managers
+ * GET SITE DETAILS - For Project Managers (FIXED VERSION)
  */
 export const getPMSiteDetails = async (req, res) => {
   try {
@@ -378,10 +379,12 @@ export const getPMSiteDetails = async (req, res) => {
       return res.status(403).json({ message: "Access denied to this site" });
     }
 
+
     const site = await Site.findById(siteId)
       .populate("supervisors", "name email phone")
       .populate("projectManagers", "name email phone")
-      .populate("clientId", "companyName clientname");
+      .populate("clientId", "companyName clientname")
+      .lean();
 
     if (!site) {
       return res.status(404).json({ message: "Site not found" });
@@ -391,100 +394,152 @@ export const getPMSiteDetails = async (req, res) => {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    // Get recent entry logs (last 24 hours)
-    const recentEntries = await Vehicle.find({
+    console.log('🔍 Fetching entry/exit data for site:', siteId);
+
+    // ✅ FIX 1: Get recent entry logs from Trip model
+    const recentEntries = await Trip.find({
       siteId,
-      type: "entry",
-      timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      entryAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
     })
-      .sort({ timestamp: -1 })
+      .populate('vendorId', 'companyName')
+      // .populate('driverId', 'name')
+      .sort({ entryAt: -1 })
       .limit(10)
       .lean();
 
+    console.log('✅ Recent entries found:', recentEntries.length);
 
-    // Get recent exit logs (last 24 hours)
-    const recentExits = await Vehicle.find({
+    // ✅ FIX 2: Get recent exit logs from Trip model
+    const recentExits = await Trip.find({
       siteId: siteId,
-      type: "exit",
-      timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      exitAt: { $ne: null, $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
     })
-      .sort({ timestamp: -1 })
+      .populate('vendorId', 'companyName')
+      // .populate('driverId', 'name')
+      .sort({ exitAt: -1 })
       .limit(10)
       .lean();
 
-    // Get today's counts
-    const todayEntries = await Vehicle.countDocuments({
+    console.log('✅ Recent exits found:', recentExits.length);
+
+    // ✅ FIX 3: Get today's counts from Trip model
+    const todayEntries = await Trip.countDocuments({
       siteId: siteId,
-      type: "entry",
-      timestamp: { $gte: todayStart },
+      entryAt: { $gte: todayStart },
     });
 
-    const todayExits = await Vehicle.countDocuments({
+    const todayExits = await Trip.countDocuments({
       siteId: siteId,
-      type: "exit",
-      timestamp: { $gte: todayStart },
+      exitAt: { $gte: todayStart },
     });
+
+    console.log('✅ Today entries:', todayEntries, 'Today exits:', todayExits);
+
+    // ✅ FIX 4: Format entry vehicles properly
+    const formattedEntries = recentEntries.map((entry) => ({
+      vehicleNumber: entry.vehicleNumber || 'N/A',
+      time: entry.entryAt ? entry.entryAt.toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }) : 'N/A',
+      driver: entry.driverId?.name || entry.driverName || "Unknown",
+      gate: entry.gateId?.name || "N/A",
+      vendor: entry.vendorId?.companyName || "N/A",
+    }));
+    const activeTrips = await Trip.find({
+      siteId,
+      status: "INSIDE",
+    }).lean();
+    const formattedActiveVehicles = activeTrips.map((trip) => ({
+      vehicleNumber: trip.vehicleNumber || trip.plateText || "N/A",
+      driver: trip.driverName || "Unknown",
+      entryTime: trip.entryAt
+        ? trip.entryAt.toLocaleTimeString("en-IN", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+        : "N/A",
+      status: "INSIDE",
+    }));
+    // ✅ FIX 5: Format exit vehicles properly
+    const formattedExits = recentExits.map((exit) => ({
+      vehicleNumber: exit.vehicleNumber || 'N/A',
+      time: exit.exitAt ? exit.exitAt.toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }) : 'N/A',
+      driver: exit.driverId?.name || exit.driverName || "Unknown",
+      gate: exit.gateId?.name || "N/A",
+      vendor: exit.vendorId?.companyName || "N/A",
+    }));
+
+    // ✅ FIX 6: Format live vehicles if they exist
+    const formattedLiveVehicles = (site.liveVehicles || []).map((vehicle) => ({
+      vehicleNumber: vehicle.vehicleNumber || "N/A",
+      type: vehicle.type || "Unknown",
+      status: vehicle.status || "Idle",
+      driver: vehicle.driver || "Not assigned",
+      fuelLevel: vehicle.fuelLevel || 0,
+      hoursOperated: vehicle.hoursOperated || 0,
+      lastUpdate: vehicle.lastUpdate
+        ? vehicle.lastUpdate.toLocaleTimeString("en-IN", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+        : "N/A",
+    }));
 
     // Prepare the response
     const response = {
       // Basic site info
-      ...site.toObject(),
+      _id: site._id,
+      name: site.name,
+      location: site.location,
+      address: site.address,
+      status: site.status,
+      contactPerson: site.contactPerson,
+      contactPhone: site.contactPhone,
+      createdAt: site.createdAt,
+
+      // Populated data
+      supervisors: site.supervisors || [],
+      projectManagers: site.projectManagers || [],
+      clientId: site.clientId,
 
       // Enhanced traffic data
-      entryVehicles: recentEntries.map((entry) => ({
-        vehicleNumber: entry.vehicleNumber,
-        time: entry.timestamp.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        driver: entry.driverName || "Unknown",
-        gate: entry.gateName || "N/A",
-      })),
-
-      exitVehicles: recentExits.map((exit) => ({
-        vehicleNumber: exit.vehicleNumber,
-        time: exit.timestamp.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        driver: exit.driverName || "Unknown",
-        gate: exit.gateName || "N/A",
-      })),
-
+      entryVehicles: formattedEntries,
+      exitVehicles: formattedExits,
       todayEntries: todayEntries,
       todayExits: todayExits,
 
-      // Live vehicles formatted for frontend
-      liveVehicles: (site.liveVehicles || []).map((vehicle) => ({
-        vehicleNumber: vehicle.vehicleNumber || "N/A",
-        type: vehicle.type || "Unknown",
-        status: vehicle.status || "Idle",
-        driver: vehicle.driver || "Not assigned",
-        fuelLevel: vehicle.fuelLevel || 0,
-        hoursOperated: vehicle.hoursOperated || 0,
-        lastUpdate: vehicle.lastUpdate
-          ? vehicle.lastUpdate.toLocaleTimeString("en-IN", {
-            hour: "2-digit",
-            minute: "2-digit",
-          })
-          : "N/A",
-      })),
+      // Live vehicles
+      liveVehicles: formattedLiveVehicles,
 
       // Statistics
       supervisorCount: site.supervisors?.length || 0,
       projectManagerCount: site.projectManagers?.length || 0,
+      vehiclesOnSite: site.vehiclesOnSite || 0,
+      activeVehicles: formattedActiveVehicles.length,
+      vehiclesOnSite: formattedActiveVehicles.length,
+      activeVehicleList: formattedActiveVehicles,
 
-      // Additional calculated fields
-      utilization:
-        site.utilization ||
+
+      // Utilization
+      utilization: site.utilization ||
         (site.totalVehicles > 0
           ? Math.round((site.vehiclesOnSite / site.totalVehicles) * 100)
           : 0),
     };
 
+    console.log('✅ Sending response with:', {
+      entries: formattedEntries.length,
+      exits: formattedExits.length,
+      liveVehicles: formattedLiveVehicles.length
+    });
+
     res.json(response);
   } catch (err) {
-    console.error("Error fetching site details:", err);
+    console.error("❌ Error fetching site details:", err);
     res.status(500).json({
       message: "Error fetching site details",
       error: err.message,

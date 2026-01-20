@@ -562,7 +562,7 @@ export const getActiveVehicles = async (req, res, next) => {
 
 
 /**
- * SUPERVISOR ANALYTICS
+ * SUPERVISOR ANALYTICS - FIXED VERSION
  */
 export const supervisorAnalytics = async (req, res, next) => {
   try {
@@ -655,7 +655,9 @@ export const supervisorAnalytics = async (req, res, next) => {
 
     const avgDuration = `${Math.floor(avgMinutes / 60)}h ${avgMinutes % 60}m`;
 
-    // Daily trends
+    // ============================================
+    // FIX 1: DAILY TRENDS - Show all 7 days
+    // ============================================
     const dailyTrends = await Trip.aggregate([
       {
         $match: {
@@ -672,24 +674,28 @@ export const supervisorAnalytics = async (req, res, next) => {
           },
         },
       },
-      {
-        $project: {
-          _id: 0,
-          day: "$_id",
-          entries: 1,
-          exits: 1,
-        },
-      },
     ]);
 
+    // Create a map of existing data
     const dayMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const formattedDaily = dailyTrends.map((d) => ({
-      day: dayMap[d.day - 1],
-      entries: d.entries,
-      exits: d.exits,
-    }));
+    const dataMap = {};
+    dailyTrends.forEach((d) => {
+      dataMap[d._id] = { entries: d.entries, exits: d.exits };
+    });
 
-    // Hourly trends
+    // Generate all 7 days with 0 for missing days
+    const formattedDaily = dayMap.map((day, index) => {
+      const dayOfWeek = index + 1; // MongoDB uses 1-7 (Sun-Sat)
+      return {
+        day: day,
+        entries: dataMap[dayOfWeek]?.entries || 0,
+        exits: dataMap[dayOfWeek]?.exits || 0,
+      };
+    });
+
+    // ============================================
+    // HOURLY TRENDS (unchanged but optimized)
+    // ============================================
     const hourlyTrends = await Trip.aggregate([
       {
         $match: {
@@ -713,18 +719,61 @@ export const supervisorAnalytics = async (req, res, next) => {
       count: h.count,
     }));
 
-    // Peak hour
+    // ============================================
+    // PEAK HOUR LOGIC EXPLANATION
+    // ============================================
+    /**
+     * Peak Hour Logic:
+     * 1. Find the hour with maximum vehicle entries
+     * 2. Format as a time range (e.g., "14:00 - 15:00")
+     * 3. This helps identify busiest traffic periods
+     * 
+     * Example: If most vehicles entered at 14:00 (2 PM),
+     * peak hour will be "14:00 - 15:00"
+     */
     const peak = formattedHourly.reduce(
       (max, curr) => (curr.count > max.count ? curr : max),
-      { count: 0 }
+      { hour: "00:00", count: 0 }
     );
 
-    const peakHour = peak.hour
+    const peakHour = peak.hour && peak.count > 0
       ? `${peak.hour} - ${String(Number(peak.hour.split(":")[0]) + 1).padStart(2, "0")}:00`
       : "--";
 
-    // Top vendors
-    const topVendors = await Trip.aggregate([
+    // ============================================
+    // FIX 2: VEHICLE TYPES - Add actual data
+    // ============================================
+    const vehicleTypesData = await Trip.aggregate([
+      {
+        $match: {
+          siteId: new mongoose.Types.ObjectId(siteId),
+          entryAt: { $gte: startDate },
+        },
+      },
+      {
+        $group: {
+          _id: "$vehicleType",
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $sort: { count: -1 },
+      },
+    ]);
+
+    // Calculate total for percentage
+    const totalVehicles = vehicleTypesData.reduce((sum, v) => sum + v.count, 0);
+
+    const vehicleTypes = vehicleTypesData.map((v) => ({
+      type: v._id || "Unknown",
+      count: v.count,
+      percentage: totalVehicles > 0 ? Math.round((v.count / totalVehicles) * 100) : 0,
+    }));
+
+    // ============================================
+    // FIX 3: TOP VENDORS - Populate vendor names
+    // ============================================
+    const topVendorsData = await Trip.aggregate([
       {
         $match: {
           siteId: new mongoose.Types.ObjectId(siteId),
@@ -739,7 +788,64 @@ export const supervisorAnalytics = async (req, res, next) => {
       },
       { $sort: { trips: -1 } },
       { $limit: 5 },
+      {
+        $lookup: {
+          from: "vendors", // Your vendor collection name
+          localField: "_id",
+          foreignField: "_id",
+          as: "vendorInfo",
+        },
+      },
+      {
+        $unwind: {
+          path: "$vendorInfo",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          name: { $ifNull: ["$vendorInfo.companyName", "Unknown Vendor"] },
+          trips: 1,
+        },
+      },
     ]);
+
+    // Calculate percentages
+    const totalTopVendorTrips = topVendorsData.reduce((sum, v) => sum + v.trips, 0);
+    
+    const topVendors = topVendorsData.map((v) => ({
+      name: v.name,
+      trips: v.trips,
+      percentage: totalTopVendorTrips > 0 
+        ? Math.round((v.trips / totalTopVendorTrips) * 100) 
+        : 0,
+    }));
+
+    // ============================================
+    // CALCULATE TIME IMPROVEMENT
+    // ============================================
+    // Get last period's average for comparison
+    const lastPeriodStart = new Date(startDate);
+    lastPeriodStart.setDate(lastPeriodStart.getDate() - 7);
+    
+    const lastPeriodTrips = await Trip.find({
+      siteId,
+      exitAt: { $ne: null },
+      entryAt: { $gte: lastPeriodStart, $lt: startDate },
+    });
+
+    let lastPeriodMinutes = 0;
+    lastPeriodTrips.forEach((t) => {
+      lastPeriodMinutes += (t.exitAt - t.entryAt) / (1000 * 60);
+    });
+
+    const lastAvgMinutes =
+      lastPeriodTrips.length > 0
+        ? Math.round(lastPeriodMinutes / lastPeriodTrips.length)
+        : avgMinutes;
+
+    const timeImprovement = lastAvgMinutes - avgMinutes;
 
     // Response
     res.json({
@@ -753,16 +859,17 @@ export const supervisorAnalytics = async (req, res, next) => {
         totalExits,
         activeVehicles,
         avgDuration,
+        timeImprovement: Math.max(0, timeImprovement), // Only show if improved
       },
       dailyTrends: formattedDaily,
       hourlyTrends: formattedHourly,
-      topVendors,
+      vehicleTypes: vehicleTypes, // ✅ Now populated
+      topVendors: topVendors, // ✅ Now includes names
     });
   } catch (err) {
     next(err);
   }
 };
-
 /**
  * GET MY ASSIGNED SITE
  */

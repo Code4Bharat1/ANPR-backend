@@ -502,11 +502,18 @@ export const updateSupervisor = async (req, res) => {
 
 export const getAllSupervisors = async (req, res) => {
   try {
-    const pmId = req.user.id || req.user._id;
+    const userId = req.user.id || req.user._id;
 
-    const supervisors = await supervisorModel.find({
-      projectManagerId: pmId,
-    })
+    const pm = await ProjectManager
+      .findOne({ userId })
+      .select("_id");
+
+    if (!pm) {
+      return res.json([]);
+    }
+
+    const supervisors = await supervisorModel
+      .find({ projectManagerId: pm._id })
       .populate("siteId", "name")
       .lean();
 
