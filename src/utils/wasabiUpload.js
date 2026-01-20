@@ -125,7 +125,7 @@ import {
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import s3Client from "./s3Client.js";
+import s3Client from "../lib/wasabi.js";
 
 const BUCKET = process.env.WASABI_BUCKET;
 
