@@ -559,7 +559,7 @@ export const createDevice = async (req, res) => {
         { new: true }
       );
 
-      console.log("✅ UPDATED SITE DOC:", updatedSite);
+      // console.log("✅ UPDATED SITE DOC:", updatedSite);
     }
 
     res.status(201).json({ message: "Device created", device });

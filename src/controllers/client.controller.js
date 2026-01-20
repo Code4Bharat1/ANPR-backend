@@ -136,8 +136,9 @@ export const getClientDashboard = async (req, res, next) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
+    // ✅ Fetch everything first
     const [
-      totalSites,
+      sites,
       projectManagers,
       supervisors,
       todayEntries,
@@ -145,7 +146,8 @@ export const getClientDashboard = async (req, res, next) => {
       clientData,
       devices
     ] = await Promise.all([
-      Site.countDocuments({ clientId }),
+      Site.find({ clientId }).select("name isActive").lean(),
+
       ProjectManager.countDocuments({ clientId, isActive: true }),
       Supervisor.countDocuments({ clientId, isActive: true }),
 
@@ -161,14 +163,24 @@ export const getClientDashboard = async (req, res, next) => {
 
       Client.findById(clientId).lean(),
 
-      // ✅ isOnline भी select करें
       Device.find({ clientId }).select("devicetype isEnabled isOnline").lean()
     ]);
 
-    // ✅ Get limits from PLANS config based on packageType
+    /* =========================
+       SITES CALCULATION ✅
+    ========================= */
+    const totalSites = sites.length;
+    const activeSites = sites.filter(s => s.isActive === true).length;
+    const inactiveSites = sites.filter(s => s.isActive === false).length;
+
+    /* =========================
+       PLAN INFO
+    ========================= */
     const packageLimits = PLANS[clientData.packageType] || PLANS.LITE;
 
-    // 🔌 Device usage breakdown
+    /* =========================
+       DEVICE USAGE
+    ========================= */
     const deviceUsage = {
       ANPR: devices.filter(d => d.devicetype === "ANPR").length,
       BARRIER: devices.filter(d => d.devicetype === "BARRIER").length,
@@ -176,27 +188,23 @@ export const getClientDashboard = async (req, res, next) => {
     };
 
     const totalDevices = devices.length;
-    
-    // ✅ सही गणना: isOnline = true वाले devices को active मानें
     const activeDevices = devices.filter(d => d.isOnline === true).length;
-    
-    // ✅ Offline devices की सही गणना
     const offlineDevices = devices.filter(d => d.isOnline === false).length;
-    
-    // ✅ Disabled devices (isEnabled = false) अलग से
     const disabledDevices = devices.filter(d => d.isEnabled === false).length;
 
-    // 🕒 Recent activity
+    /* =========================
+       RECENT ACTIVITY
+    ========================= */
     const recentActivity = await Trip.find({ clientId })
       .sort({ createdAt: -1 })
       .limit(10)
       .populate("siteId", "name")
       .select("plateText entryAt exitAt status siteId");
 
+    /* =========================
+       RESPONSE ✅
+    ========================= */
     res.json({
-      /* =========================
-         PLAN INFO - Using PLANS config
-      ========================= */
       plan: {
         packageType: clientData.packageType,
         packageStart: clientData.packageStart,
@@ -208,45 +216,50 @@ export const getClientDashboard = async (req, res, next) => {
         }
       },
 
-      /* =========================
-         USAGE INFO
-      ========================= */
       usage: {
         pm: projectManagers,
         supervisor: supervisors,
         devices: deviceUsage
       },
 
-      /* =========================
-         EXISTING DASHबोर्ड DATA
-      ========================= */
+      // ✅ SITES
+      sites,
       totalSites,
+      activeSites,
+      inactiveSites,
+
+      // ✅ USERS
       totalProjectManagers: projectManagers,
       totalSupervisors: supervisors,
       totalUsers: projectManagers + supervisors,
 
+      // ✅ DEVICES
       totalDevices,
       activeDevices,
-      offlineDevices, // ✅ नया field
-      disabledDevices, // ✅ नया field (optional)
-      inactiveDevices: offlineDevices, // ✅ backward compatibility के लिए
+      offlineDevices,
+      disabledDevices,
+      inactiveDevices: offlineDevices,
 
+      // ✅ TODAY
       todayEntries,
       todayExits,
       todayTotal: todayEntries + todayExits,
 
+      // ✅ ACTIVITY
       recentActivity: recentActivity.map(trip => ({
         title: `Vehicle ${trip.plateText}`,
-        description: `${trip.status} at ${trip.siteId?.name}`,
+        description: `${trip.status} at ${trip.siteId?.name || "Unknown Site"}`,
         time: trip.entryAt || trip.exitAt
       })),
 
       lastUpdated: new Date().toISOString()
     });
+
   } catch (err) {
     next(err);
   }
 };
+
 export const createProjectManager = async (req, res, next) => {
   try {
     const { name, email, mobile, password, assignedSites = [] } = req.body;
@@ -521,9 +534,8 @@ export const toggleSupervisor = async (req, res, next) => {
 
     res.json({
       success: true,
-      message: `Supervisor ${
-        updatedSupervisor.isActive ? "activated" : "deactivated"
-      } successfully`,
+      message: `Supervisor ${updatedSupervisor.isActive ? "activated" : "deactivated"
+        } successfully`,
       data: {
         _id: updatedSupervisor._id,
         name: updatedSupervisor.name,

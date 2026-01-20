@@ -49,6 +49,7 @@ const deviceSchema = new mongoose.Schema(
     // IP Address (if relevant for remote devices or network-based devices)
     ipAddress: {
       type: String,
+      required: true,
       match: /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/ // Basic regex for IP format
     },
 

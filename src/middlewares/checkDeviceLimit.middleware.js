@@ -1,30 +1,38 @@
-import Device from "../models/Device.model.js";
-import Client from "../models/Client.model.js";
-import{ PLANS } from "../config/plans.js";
-
 export const checkDeviceLimit = async (req, res, next) => {
-  const { devicetype } = req.body;
-  const clientId = req.user.clientId;
+  try {
+    const { devicetype, siteId } = req.body;
+    const clientId = req.user.clientId;
 
-  const client = await Client.findById(clientId);
-  if (!client) {
-    return res.status(404).json({ message: "Client not found" });
-  }
+    if (!siteId) {
+      return res.status(400).json({
+        message: "siteId is required for device creation"
+      });
+    }
 
-  const packageLimits = PLANS[client.packageType] || PLANS.LITE;
-  const allowed = packageLimits.limits.devices[devicetype] ?? 0;
+    const client = await Client.findById(clientId);
+    if (!client) {
+      return res.status(404).json({ message: "Client not found" });
+    }
 
-  const used = await Device.countDocuments({
-    clientId,
-    devicetype,
-    isEnabled: true,
-  });
+    const packageLimits = PLANS[client.packageType] || PLANS.LITE;
+    const allowed = packageLimits.limits.devices[devicetype] ?? 0;
 
-  if (used >= allowed) {
-    return res.status(403).json({
-      message: `Device limit exceeded for ${devicetype}. Allowed: ${allowed}`
+    // ✅ SITE-WISE CHECK
+    const used = await Device.countDocuments({
+      clientId,
+      siteId,
+      devicetype,
+      isEnabled: true
     });
-  }
 
-  next();
+    if (used >= allowed) {
+      return res.status(403).json({
+        message: `Device limit exceeded for ${devicetype} at this site. Allowed: ${allowed}`
+      });
+    }
+
+    next();
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
 };
