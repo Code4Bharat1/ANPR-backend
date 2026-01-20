@@ -549,10 +549,10 @@ export const getTripReportsPM = async (req, res) => {
     }
 
     const reports = await Trip.find(filter)
-      .populate('vehicleId', 'vehicleNumber')
+      .populate('vehicleId')
       .populate('vendorId', 'name email phone')
       .populate('siteId', 'name location siteId')
-      .populate('supervisorId', 'name email')
+      .populate('createdBy', "name")
       .populate('clientId', 'name')
       .populate('projectManagerId', 'name email')
       .sort({ entryAt: -1 });
@@ -569,10 +569,11 @@ export const getTripReportsPM = async (req, res) => {
     const formattedReports = reports.map(trip => ({
       _id: trip._id,
       tripId: trip.tripId || 'N/A',
-      vehicleId: {
-        _id: trip.vehicleId?._id,
-        vehicleNumber: trip.plateText || trip.vehicleId?.vehicleNumber || 'N/A'
-      },
+      // vehicleId: {
+      //   _id: trip.vehicleId?._id,
+      //   vehicleNumber: trip.plateText || trip.vehicleId?.vehicleNumber || 'N/A'
+      // },
+      vehicleId: trip.vehicleId,
       vendorId: {
         _id: trip.vendorId?._id,
         name: trip.vendorId?.name || 'N/A'
@@ -588,7 +589,8 @@ export const getTripReportsPM = async (req, res) => {
       loadStatus: trip.loadStatus,
       entryGate: trip.entryGate,
       exitGate: trip.exitGate,
-      notes: trip.notes
+      notes: trip.notes,
+      createdBy: trip.createdBy
     }));
 
     return res.json(formattedReports);

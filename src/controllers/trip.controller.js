@@ -962,7 +962,7 @@ export const createManualTrip = async (req, res) => {
  */
 export const createManualTripMobile = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.id;
     const { siteId, clientId } = req.user;
 
     if (!siteId) {
@@ -1040,6 +1040,7 @@ export const createManualTripMobile = async (req, res) => {
         vendorId: vendorId || null, // Allow null for personal vehicles
         siteId,
         clientId,
+        supervisorId: userId,
         isInside: true,
         lastEntryAt: entryTime ? new Date(entryTime) : new Date(),
         createdBy: userId,
