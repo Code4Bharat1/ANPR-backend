@@ -144,43 +144,59 @@ export const getReports = async (req, res, next) => {
     // console.log(`✅ Found ${trips.length} trips for user ${req.user.id}`);
 
     // 4. Format response
-    const formattedTrips = trips.map((trip) => {
-      const entryDate = trip.entryAt;
-      const exitDate = trip.exitAt;
-      
-      return {
-        id: trip._id,
-        tripId: trip.tripId || 'N/A',
-        vehicleNumber: trip.plateText || trip.vehicleNumber || 
-                      (trip.vehicleId?.vehicleNumber || 'N/A'),
-        entryTime: entryDate
-          ? new Date(entryDate).toLocaleString('en-IN', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-          })
-          : '-',
-        exitTime: exitDate
-          ? new Date(exitDate).toLocaleString('en-IN', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-          })
-          : '-',
-        status: trip.status === 'INSIDE' || trip.status === 'active' ? 'Active' :
-                trip.status === 'EXITED' || trip.status === 'completed' ? 'Completed' :
-                trip.status || 'Active',
-        site: trip.siteId?.name || trip.site || '-',
-        siteId: trip.siteId?._id || '-'
-      };
-    });
+   const formattedTrips = trips.map((trip) => {
+  const entryDate = trip.entryAt;
+  const exitDate = trip.exitAt;
 
+  return {
+    id: trip._id,
+    tripId: trip.tripId || 'N/A',
+
+    vehicleNumber:
+      trip.plateText ||
+      trip.vehicleNumber ||
+      trip.vehicleId?.vehicleNumber ||
+      'N/A',
+
+    // 👇 formatted (for UI)
+    entryTime: entryDate
+      ? new Date(entryDate).toLocaleString('en-IN', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        })
+      : '-',
+
+    exitTime: exitDate
+      ? new Date(exitDate).toLocaleString('en-IN', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        })
+      : '-',
+
+    // 🔥🔥🔥 THIS IS THE KEY FIX
+    entryAt: trip.entryAt,
+    exitAt: trip.exitAt,
+
+    status:
+      trip.status === 'INSIDE' || trip.status === 'active'
+        ? 'Active'
+        : trip.status === 'EXITED' || trip.status === 'completed'
+        ? 'Completed'
+        : trip.status || 'Active',
+
+    site: trip.siteId?.name || trip.site || '-',
+    siteId: trip.siteId?._id || '-'
+  };
+});
+    
     res.json(formattedTrips);
   } catch (err) {
     console.error('❌ Get reports error:', err);
