@@ -17,6 +17,12 @@ const clientSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    
+    address: {
+      type: String,
+      trim: true,
+    },
+
 
     phone: { type: String, required: true },
 

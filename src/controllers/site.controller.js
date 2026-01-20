@@ -25,8 +25,8 @@ export const createClientSite = async (req, res, next) => {
     // 🧹 Remove empty gates
     const cleanedGates = Array.isArray(gates)
       ? gates.filter(
-          gate => gate?.gateName && gate.gateName.trim() !== ""
-        )
+        gate => gate?.gateName && gate.gateName.trim() !== ""
+      )
       : [];
 
     // 🛡️ Ensure only one main gate
@@ -117,42 +117,35 @@ export const updateClientSite = async (req, res, next) => {
 
     // 🛡️ Gate validation and transformation
     let cleanedGates = [];
-    if (gates && Array.isArray(gates)) {
-      // console.log('🚪 Processing gates:', gates);
-      
+
+    if (Array.isArray(gates)) {
       cleanedGates = gates
-        .filter(gate => {
-          // Accept either gateName or name field
-          const name = gate?.gateName || gate?.name;
-          return name && name.trim() !== "";
-        })
         .map(gate => ({
-          // Convert name to gateName if needed
-          gateName: gate.gateName || gate.name,
-          isMainGate: gate.isMainGate || false,
-          isActive: gate.isActive !== undefined ? gate.isActive : true,
-          gateCode: gate.gateCode || undefined
-        }));
-      
-      // console.log('🚪 Transfo/rmed gates:', cleanedGates);
-      
+          gateName: (gate.gateName || gate.name || "").trim(),
+          isMainGate: Boolean(gate.isMainGate),
+          isActive: gate.isActive !== false,
+          gateCode: gate.gateCode,
+        }))
+        .filter(g => g.gateName !== "");
+
       const mainGateCount = cleanedGates.filter(g => g.isMainGate).length;
       if (mainGateCount > 1) {
         return res.status(400).json({
-          message: "Only one gate can be marked as main gate"
+          message: "Only one gate can be marked as main gate",
         });
       }
     }
 
+
     const oldValue = site.toObject();
-    
+
     // Prepare update data with transformed gates
     const updateData = {
       ...req.body,
       updatedBy: req.user.id,
       updatedAt: new Date(),
     };
-    
+
     // Only include gates if we have cleaned gates
     if (cleanedGates.length > 0) {
       updateData.gates = cleanedGates;
@@ -171,12 +164,12 @@ export const updateClientSite = async (req, res, next) => {
 
     // console.log('✅ Site updated successfully');
 
-    await logAudit({ 
-      req, 
-      action: "UPDATE", 
-      module: "SITE", 
-      oldValue: oldValue, 
-      newValue: updatedSite 
+    await logAudit({
+      req,
+      action: "UPDATE",
+      module: "SITE",
+      oldValue: oldValue,
+      newValue: updatedSite
     });
 
     res.json({
@@ -186,7 +179,7 @@ export const updateClientSite = async (req, res, next) => {
   } catch (err) {
     console.error('❌ Update Site Error:', err);
     console.error('❌ Validation Errors:', err.errors);
-    
+
     // Check for validation errors
     if (err.name === 'ValidationError') {
       const errors = Object.values(err.errors).map(e => e.message);
@@ -195,7 +188,7 @@ export const updateClientSite = async (req, res, next) => {
         errors: errors
       });
     }
-    
+
     next(err);
   }
 };
@@ -207,7 +200,7 @@ export const toggleClientSite = async (req, res, next) => {
   try {
     const { id } = req.params;
     const site = await Site.findById(id);
-    
+
     if (!site) return res.status(404).json({ message: "Site not found" });
 
     if (String(site.clientId) !== String(req.user.clientId)) {
@@ -220,12 +213,12 @@ export const toggleClientSite = async (req, res, next) => {
     site.updatedAt = new Date();
     await site.save();
 
-    await logAudit({ 
-      req, 
-      action: "TOGGLE", 
-      module: "SITE", 
-      oldValue: oldValue, 
-      newValue: site 
+    await logAudit({
+      req,
+      action: "TOGGLE",
+      module: "SITE",
+      oldValue: oldValue,
+      newValue: site
     });
 
     res.json(site);
@@ -278,11 +271,11 @@ export const deleteClientSite = async (req, res, next) => {
     }
 
     // 4️⃣ Log audit before deletion
-    await logAudit({ 
-      req, 
-      action: "DELETE", 
-      module: "SITE", 
-      oldValue: site 
+    await logAudit({
+      req,
+      action: "DELETE",
+      module: "SITE",
+      oldValue: site
     });
 
     // 5️⃣ Delete the site
@@ -309,13 +302,13 @@ export const getMySites = async (req, res) => {
     // console.log('🔍 getMySites called');
     // console.log('🔍 req.user:', req.user);
     // console.log('🔍 User ID from token:', req.user?.id);
-    
+
     // Check if req.user exists
     if (!req.user || !req.user.id) {
       console.error('❌ No user found in request');
-      return res.status(401).json({ 
+      return res.status(401).json({
         message: 'Authentication failed - no user in request',
-        user: req.user 
+        user: req.user
       });
     }
 
@@ -329,12 +322,12 @@ export const getMySites = async (req, res) => {
       .lean();
 
     // console.log('🔍 Found Project Manager:', pm ? 'Yes' : 'No');
-    
+
     if (!pm) {
       console.error('❌ Project manager not found in database with ID:', req.user.id);
-      return res.status(404).json({ 
+      return res.status(404).json({
         message: "Project manager not found",
-        userId: req.user.id 
+        userId: req.user.id
       });
     }
 
@@ -399,14 +392,14 @@ export const getPMSiteDetails = async (req, res) => {
     todayStart.setHours(0, 0, 0, 0);
 
     // Get recent entry logs (last 24 hours)
-   const recentEntries = await Vehicle.find({
-  siteId,
-  type: "entry",
-  timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-})
-  .sort({ timestamp: -1 })
-  .limit(10)
-  .lean();
+    const recentEntries = await Vehicle.find({
+      siteId,
+      type: "entry",
+      timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+    })
+      .sort({ timestamp: -1 })
+      .limit(10)
+      .lean();
 
 
     // Get recent exit logs (last 24 hours)
@@ -471,9 +464,9 @@ export const getPMSiteDetails = async (req, res) => {
         hoursOperated: vehicle.hoursOperated || 0,
         lastUpdate: vehicle.lastUpdate
           ? vehicle.lastUpdate.toLocaleTimeString("en-IN", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
+            hour: "2-digit",
+            minute: "2-digit",
+          })
           : "N/A",
       })),
 
@@ -1020,8 +1013,8 @@ export const createAdminSite = async (req, res, next) => {
     // 🧹 Remove empty gates
     const cleanedGates = Array.isArray(gates)
       ? gates.filter(
-          gate => gate?.gateName && gate.gateName.trim() !== ""
-        )
+        gate => gate?.gateName && gate.gateName.trim() !== ""
+      )
       : [];
 
     // 🛡️ Ensure only one main gate
@@ -1047,11 +1040,11 @@ export const createAdminSite = async (req, res, next) => {
     const populatedSite = await Site.findById(newSite._id)
       .populate('clientId', 'companyName clientname email');
 
-    await logAudit({ 
-      req, 
-      action: "CREATE", 
-      module: "SITE", 
-      newValue: populatedSite 
+    await logAudit({
+      req,
+      action: "CREATE",
+      module: "SITE",
+      newValue: populatedSite
     });
 
     res.status(201).json({
@@ -1102,34 +1095,34 @@ export const updateAdminSite = async (req, res, next) => {
     if (gates !== undefined) {
       const cleanedGates = Array.isArray(gates)
         ? gates.filter(
-            gate => gate?.gateName && gate.gateName.trim() !== ""
-          )
+          gate => gate?.gateName && gate.gateName.trim() !== ""
+        )
         : [];
-      
+
       const mainGateCount = cleanedGates.filter(g => g.isMainGate).length;
       if (mainGateCount > 1) {
         return res.status(400).json({
           message: "Only one gate can be marked as main gate"
         });
       }
-      
+
       site.gates = cleanedGates;
     }
 
     site.updatedBy = req.user.id;
     site.updatedAt = new Date();
-    
+
     await site.save();
 
     const updatedSite = await Site.findById(id)
       .populate('clientId', 'companyName clientname email');
 
-    await logAudit({ 
-      req, 
-      action: "UPDATE", 
-      module: "SITE", 
-      oldValue: oldValue, 
-      newValue: updatedSite 
+    await logAudit({
+      req,
+      action: "UPDATE",
+      module: "SITE",
+      oldValue: oldValue,
+      newValue: updatedSite
     });
 
     res.json({
@@ -1184,11 +1177,11 @@ export const deleteAdminSite = async (req, res, next) => {
 
     const oldValue = site.toObject();
 
-    await logAudit({ 
-      req, 
-      action: "DELETE", 
-      module: "SITE", 
-      oldValue: oldValue 
+    await logAudit({
+      req,
+      action: "DELETE",
+      module: "SITE",
+      oldValue: oldValue
     });
 
     // Hard delete the site
@@ -1222,12 +1215,12 @@ export const toggleAdminSiteStatus = async (req, res, next) => {
     site.updatedAt = new Date();
     await site.save();
 
-    await logAudit({ 
-      req, 
-      action: "TOGGLE", 
-      module: "SITE", 
-      oldValue: oldValue, 
-      newValue: site 
+    await logAudit({
+      req,
+      action: "TOGGLE",
+      module: "SITE",
+      oldValue: oldValue,
+      newValue: site
     });
 
     res.json({

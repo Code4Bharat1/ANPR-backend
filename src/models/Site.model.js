@@ -51,21 +51,9 @@ const siteSchema = new mongoose.Schema(
     /* ======================
        CONTACT INFO
     ====================== */
-    contactPerson: {
-      type: String,
-      trim: true,
-    },
-
-    contactPhone: {
-      type: String,
-      trim: true,
-    },
-
-    contactEmail: {
-      type: String,
-      lowercase: true,
-      trim: true,
-    },
+    contactPerson: { type: String, trim: true },
+    contactPhone: { type: String, trim: true },
+    contactEmail: { type: String, lowercase: true, trim: true },
 
     /* ======================
        STATUS
@@ -82,47 +70,31 @@ const siteSchema = new mongoose.Schema(
     },
 
     /* ======================
-       VEHICLE TRACKING FIELDS (NEW)
+       DEVICES
     ====================== */
-    totalVehicles: {
-      type: Number,
-      default: 0,
-    },
-
-    activeVehicles: {
-      type: Number,
-      default: 0,
-    },
-
-    vehiclesOnSite: {
-      type: Number,
-      default: 0,
-    },
-
-    todayEntries: {
-      type: Number,
-      default: 0,
-    },
-
-    todayExits: {
-      type: Number,
-      default: 0,
-    },
-
-    utilization: {
-      type: Number,
-      default: 0,
-    },
+    assignedDevices: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Device",
+      },
+    ],
 
     /* ======================
-       LIVE VEHICLE DATA (NEW)
+       VEHICLE TRACKING
+    ====================== */
+    totalVehicles: { type: Number, default: 0 },
+    activeVehicles: { type: Number, default: 0 },
+    vehiclesOnSite: { type: Number, default: 0 },
+    todayEntries: { type: Number, default: 0 },
+    todayExits: { type: Number, default: 0 },
+    utilization: { type: Number, default: 0 },
+
+    /* ======================
+       LIVE VEHICLE DATA
     ====================== */
     liveVehicles: [
       {
-        vehicleId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Vehicle",
-        },
+        vehicleId: { type: mongoose.Schema.Types.ObjectId, ref: "Vehicle" },
         vehicleNumber: String,
         type: String,
         status: {
@@ -131,10 +103,7 @@ const siteSchema = new mongoose.Schema(
           default: "Idle",
         },
         driver: String,
-        driverId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Driver",
-        },
+        driverId: { type: mongoose.Schema.Types.ObjectId, ref: "Driver" },
         fuelLevel: Number,
         hoursOperated: Number,
         lastUpdate: Date,
@@ -159,7 +128,6 @@ const siteSchema = new mongoose.Schema(
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Supervisor",
-        index: true,
       },
     ],
 
@@ -167,7 +135,6 @@ const siteSchema = new mongoose.Schema(
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "ProjectManager",
-        index: true,
       },
     ],
 
@@ -180,10 +147,11 @@ const siteSchema = new mongoose.Schema(
 );
 
 /* ======================
-   INDEXES (PERFORMANCE)
+   INDEXES
 ====================== */
 siteSchema.index({ name: 1, clientId: 1 });
 siteSchema.index({ status: 1 });
+siteSchema.index({ assignedDevices: 1 }); // ✅ CORRECT index
 siteSchema.index({ "liveVehicles.status": 1 });
 
 const Site = mongoose.model("Site", siteSchema);

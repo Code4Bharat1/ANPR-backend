@@ -9,6 +9,7 @@ import Notification from "../models/Notification.model.js";
 import { PLANS } from "../config/plans.js"; 
 import { comparePassword, hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
+import mongoose from "mongoose";
 
 /* ======================================================
    DASHBOARD - Updated for Device Model with devicetype field
@@ -527,7 +528,7 @@ export const createDevice = async (req, res) => {
   try {
     const {
       clientId,
-      deviceName,  // ✅ 这个字段是必须的
+      deviceName,
       siteId,
       deviceType,
       serialNumber,
@@ -535,55 +536,40 @@ export const createDevice = async (req, res) => {
       notes
     } = req.body;
 
-    // console.log("Received data:", req.body); // 调试用/
+    console.log("🔥 Incoming siteId:", siteId);
+    console.log("🧠 DB:", mongoose.connection.name);
 
-    // ✅ 更新验证逻辑，包含 deviceName
-    if (!clientId || !deviceType || !serialNumber || !deviceName) {
-      return res.status(400).json({
-        message: "clientId, deviceType, serialNumber and deviceName are required",
-        received: { clientId, deviceType, serialNumber, deviceName }
-      });
-    }
+    const siteCheck = await Site.findById(siteId);
+    console.log("🔥 siteCheck:", siteCheck?._id);
 
     const device = await Device.create({
       clientId,
-      siteId,
-      deviceName,  // ✅ 保存到数据库
+      siteId: siteId || null,
+      deviceName,
       devicetype: deviceType.toUpperCase(),
       serialNo: serialNumber,
       ipAddress,
       notes
     });
 
-    res.status(201).json({
-      message: "Device created successfully",
-      device
-    });
-  } catch (error) {
-    console.error("Create device error:", error);
-    
-    // ✅ 处理重复的序列号错误
-    if (error.code === 11000) {
-      return res.status(400).json({ 
-        message: "Device with this serial number already exists" 
-      });
+    if (siteId) {
+      const updatedSite = await Site.findByIdAndUpdate(
+        siteId, // 👈 NO ObjectId conversion for test
+        { $addToSet: { assignedDevices: device._id } },
+        { new: true }
+      );
+
+      console.log("✅ UPDATED SITE DOC:", updatedSite);
     }
-    
-    // ✅ 处理验证错误
-    if (error.name === 'ValidationError') {
-      const messages = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({ 
-        message: "Validation error",
-        errors: messages 
-      });
-    }
-    
-    res.status(500).json({ 
-      message: "Failed to create device",
-      error: error.message 
-    });
+
+    res.status(201).json({ message: "Device created", device });
+
+  } catch (err) {
+    console.error("❌ CREATE DEVICE ERROR:", err);
+    res.status(500).json({ message: err.message });
   }
 };
+
 export const deviceStats = async (req, res, next) => {
   try {
     const total = await Device.countDocuments();
@@ -691,6 +677,10 @@ export const updateDevice = async (req, res, next) => {
 
     const oldValue = device.toObject();
 
+    // 🔥 Track old site BEFORE change
+    const oldSiteId = device.siteId?.toString() || null;
+
+    // ---- DEVICE FIELD UPDATES ----
     if (deviceType) device.devicetype = deviceType.toUpperCase();
     if (serialNumber) device.serialNo = serialNumber;
 
@@ -705,6 +695,28 @@ export const updateDevice = async (req, res, next) => {
 
     await device.save();
 
+    // 🔥 Track new site AFTER save
+    const newSiteId = device.siteId?.toString() || null;
+
+    // ---- 🔥 SITE SYNC LOGIC ----
+
+    // 1️⃣ Remove from OLD site
+    if (oldSiteId && oldSiteId !== newSiteId) {
+      await Site.findByIdAndUpdate(
+        new mongoose.Types.ObjectId(oldSiteId),
+        { $pull: { assignedDevices: device._id } }
+      );
+    }
+
+    // 2️⃣ Add to NEW site
+    if (newSiteId && oldSiteId !== newSiteId) {
+      await Site.findByIdAndUpdate(
+        new mongoose.Types.ObjectId(newSiteId),
+        { $addToSet: { assignedDevices: device._id } }
+      );
+    }
+
+    // ---- RESPONSE ----
     const populatedDevice = await Device.findById(device._id)
       .populate("clientId", "companyName")
       .populate("siteId", "name");
@@ -719,7 +731,7 @@ export const updateDevice = async (req, res, next) => {
 
     res.json({
       _id: populatedDevice._id,
-        name: device.deviceName || device.serialNo, // ✅ Change
+      name: populatedDevice.deviceName || populatedDevice.serialNo,
       deviceId: populatedDevice.serialNo,
       type: populatedDevice.devicetype,
       status: populatedDevice.isOnline ? "online" : "offline",

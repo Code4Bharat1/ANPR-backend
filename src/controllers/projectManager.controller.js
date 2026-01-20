@@ -370,7 +370,6 @@ export const createSupervisor = async (req, res) => {
   try {
     const { name, email, mobile, address, siteId, password } = req.body;
 
-    // 🔐 Fetch PM with plan + assigned sites
     const pm = await ProjectManager.findById(req.user.id)
       .select("assignedSites plan")
       .lean();
@@ -379,26 +378,20 @@ export const createSupervisor = async (req, res) => {
       return res.status(404).json({ message: "Project Manager not found" });
     }
 
-    // 🔐 Validate site ownership
     if (!pm.assignedSites?.some(id => id.toString() === siteId)) {
       return res.status(403).json({
         message: "You cannot assign supervisor to this site",
       });
     }
 
-    // 📦 Get plan limits
-    const planKey = pm.plan || "LITE"; // fallback safety
+    const planKey = pm.plan || "LITE";
     const planConfig = PLANS[planKey];
-
     if (!planConfig) {
-      return res.status(400).json({
-        message: "Invalid plan assigned to PM",
-      });
+      return res.status(400).json({ message: "Invalid plan assigned to PM" });
     }
 
     const supervisorLimit = planConfig.limits.supervisor;
 
-    // 🔢 Count existing supervisors under this PM
     const existingSupervisors = await supervisorModel.countDocuments({
       projectManagerId: req.user.id,
     });
@@ -409,16 +402,28 @@ export const createSupervisor = async (req, res) => {
       });
     }
 
-    // ✅ Create supervisor
+    // ✅ CREATE SUPERVISOR
     const supervisor = await supervisorModel.create({
       name,
-      email,
+      email: email.toLowerCase().trim(),
       mobile,
       address,
       siteId,
       password,
       projectManagerId: req.user.id,
     });
+
+    // 🔥 UPDATE SITE (MISSING PART)
+    await Site.findByIdAndUpdate(
+      siteId,
+      { $addToSet: { supervisors: supervisor._id } }
+    );
+
+    // 🔥 UPDATE PM (OPTIONAL BUT RECOMMENDED)
+    await ProjectManager.findByIdAndUpdate(
+      req.user.id,
+      { $addToSet: { supervisors: supervisor._id } }
+    );
 
     await supervisor.populate("siteId", "name");
 
@@ -435,6 +440,7 @@ export const createSupervisor = async (req, res) => {
     });
   }
 };
+
 // Add this to your backend supervisor routes
 export const updateSupervisor = async (req, res) => {
   try {

@@ -249,25 +249,33 @@ export const getClientDashboard = async (req, res, next) => {
 };
 export const createProjectManager = async (req, res, next) => {
   try {
-    const { name, email, mobile, password, assignedSites } = req.body;
+    const { name, email, mobile, password, assignedSites = [] } = req.body;
 
     const pm = await ProjectManager.create({
       name,
-      email: email.toLowerCase().trim(), // ✅ FIX
+      email: email.toLowerCase().trim(),
       mobile,
       password,
-    
-      assignedSites: assignedSites || [],
+      assignedSites,
       clientId: req.user.clientId,
       createdBy: req.user.id,
-      role: "project_manager", // ✅ FIX (CRITICAL)
+      role: "project_manager",
     });
+
+    // 🔥 IMPORTANT: Update sites with this PM
+    if (assignedSites.length > 0) {
+      await Site.updateMany(
+        { _id: { $in: assignedSites } },
+        { $addToSet: { projectManagers: pm._id } }
+      );
+    }
 
     res.status(201).json(pm);
   } catch (err) {
     next(err);
   }
 };
+
 
 /**
  * GET PROJECT MANAGERS (Client/Admin)

@@ -32,55 +32,62 @@ export const createSupervisor = async (req, res, next) => {
       shiftEnd,
     } = req.body;
 
-    // Validate required fields
-    if (!name || !email || !mobile || !password) {
-      return res.status(400).json({ 
-        message: "Name, email, mobile and password are required" 
+    if (!name || !email || !mobile || !password || !projectManagerId) {
+      return res.status(400).json({
+        message: "Required fields missing",
       });
     }
 
-    if (!projectManagerId) {
-      return res.status(400).json({ 
-        message: "Project Manager is required" 
-      });
-    }
+    const normalizedEmail = email.toLowerCase().trim();
 
-    // ✅ Fetch PM to get clientId
     const pm = await ProjectManager.findById(projectManagerId).select("clientId");
     if (!pm) {
       return res.status(404).json({ message: "Project Manager not found" });
     }
 
-    // Check if email already exists
-    const existingSupervisor = await Supervisor.findOne({ email });
+    const existingSupervisor = await Supervisor.findOne({
+      email: normalizedEmail,
+    });
     if (existingSupervisor) {
-      return res.status(409).json({ 
-        message: "Supervisor with this email already exists" 
+      return res.status(409).json({
+        message: "Supervisor with this email already exists",
       });
+    }
+
+    let site = null;
+    if (siteId) {
+      site = await Site.findOne({
+        _id: siteId,
+        clientId: pm.clientId,
+      });
+
+      if (!site) {
+        return res.status(404).json({
+          message: "Invalid site for this client",
+        });
+      }
     }
 
     const supervisor = await Supervisor.create({
       name,
-      email,
+      email: normalizedEmail,
       mobile,
       password: await hashPassword(password),
       siteId,
-      clientId: pm.clientId, // ✅ AUTO SET from PM
+      clientId: pm.clientId,
       projectManagerId,
       shiftStart,
       shiftEnd,
       createdBy: req.user.id,
     });
 
-    // Attach supervisor to project manager
     await ProjectManager.findByIdAndUpdate(
       projectManagerId,
       { $addToSet: { supervisors: supervisor._id } }
     );
 
-    // Attach supervisor to site
-    if (siteId) {
-      await Site.findByIdAndUpdate(siteId, {
+    if (site) {
+      await Site.findByIdAndUpdate(site._id, {
         $addToSet: { supervisors: supervisor._id },
       });
     }
