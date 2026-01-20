@@ -74,6 +74,7 @@ const tripSchema = new mongoose.Schema(
       enum: ["FULL", "PARTIAL", "EMPTY", "LOADED", "UNLOADED"],
     },
     purpose: String,
+    countofmaterials: Number,
     notes: String,
 
     // Time Tracking

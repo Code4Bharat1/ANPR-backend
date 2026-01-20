@@ -161,6 +161,8 @@ export const getTripHistory = async (req, res) => {
         trip.vehicleId?.plateNumber ||
         trip.plateText ||
         "N/A";
+      
+      const vehicleType = trip.vehicleId?.vehicleType || "N/A";
 
       // Get vendor name from multiple possible sources
       const vendorName =
@@ -191,6 +193,7 @@ export const getTripHistory = async (req, res) => {
         _id: trip._id,
         tripId: trip.tripId || "N/A",
         vehicleNumber,
+        vehicleType,
         vendor: vendorName,
         driver: trip.vehicleId?.driverName || "N/A",
         materialType: trip.loadStatus || "N/A",
