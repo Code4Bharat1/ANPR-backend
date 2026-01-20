@@ -536,6 +536,9 @@ export const getActiveVehicles = async (req, res, next) => {
         loadStatus: t.loadStatus || "FULL",
         purpose: t.purpose || "N/A",
         entryGate: t.entryGate || "N/A",
+
+        entryMedia: t.entryMedia || null,
+        exitMedia: t.exitMedia || null,
       };
     });
 

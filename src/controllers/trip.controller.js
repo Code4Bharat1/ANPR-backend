@@ -204,6 +204,9 @@ export const getTripHistory = async (req, res) => {
         entryGate: trip.entryGate || "N/A",
         exitGate: trip.exitGate || "N/A",
         loadStatus: trip.loadStatus || "N/A",
+
+        entryMedia: trip.entryMedia || null,
+        exitMedia: trip.exitMedia || null,
       };
     });
 
@@ -549,7 +552,7 @@ export const exitVehicle = async (req, res) => {
       });
     }
 
-    const vehicle = await Trip.findById({ _id : vehicleId});
+    const vehicle = await Trip.findById({ _id: vehicleId });
 
     if (!vehicle) {
       return res.status(404).json({
@@ -570,7 +573,7 @@ export const exitVehicle = async (req, res) => {
     }
 
     const trip = await Trip.findOne({
-      _id : vehicleId,
+      _id: vehicleId,
       status: { $ne: "EXITED" },
     }).sort({ entryAt: -1 });
 
@@ -716,7 +719,6 @@ export const exitVehicle = async (req, res) => {
 //     });
 
 //     console.log(vehicle);
-    
 
 //     if (vehicle?.isInside) {
 //       return res.status(409).json({
@@ -871,7 +873,9 @@ export const createManualTrip = async (req, res) => {
     } = req.body;
 
     if (!vehicleNumber || !vendorId) {
-      return res.status(400).json({ success: false, message: "Missing fields" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing fields" });
     }
 
     const plate = vehicleNumber.toUpperCase();
@@ -951,221 +955,22 @@ export const createManualTrip = async (req, res) => {
   }
 };
 
-
-
-
-
 /**
  * @desc   Create manual trip entry (Mobile)
  * @route  POST /api/mobile/trips/manual
  * @access Guard, Supervisor
  */
-// export const createManualTripMobile = async (req, res) => {
-//   try {
-//     const userId = req.user._id;
-//     const { siteId, clientId } = req.user;
-
-//     if (!siteId || !clientId) {
-//       return res.status(403).json({
-//         success: false,
-//         message: "User not assigned to site or client",
-//       });
-//     }
-
-//     const {
-//       vehicleNumber,
-//       vehicleType,
-//       driverName,
-//       driverPhone,
-//       vendorId,
-//       entryTime,
-//       purpose,
-//       loadStatus,
-//       entryGate,
-//       notes,
-//       media,
-//     } = req.body;
-
-//     // 🔥 FIX: Make vendorId optional for certain vehicle types (like personal vehicles/bikes)
-//     if (!vehicleNumber) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Vehicle number is required",
-//       });
-//     }
-
-//     // If vehicle is a personal vehicle type, allow vendorId to be optional
-//     const personalVehicleTypes = [
-//       "BIKE",
-//       "CAR",
-//       "SCOOTER",
-//       "MOTORCYCLE",
-//       "PERSONAL",
-//     ];
-//     const isPersonalVehicle = personalVehicleTypes.includes(
-//       (vehicleType || "").toUpperCase(),
-//     );
-
-//     if (!isPersonalVehicle && !vendorId) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Vendor ID is required for commercial vehicles",
-//         field: "vendorId",
-//         validVehicleTypes: ["BIKE", "CAR", "SCOOTER", "MOTORCYCLE", "PERSONAL"],
-//       });
-//     }
-
-//     const normalizedVehicleNumber = vehicleNumber.toUpperCase();
-
-//     // Find existing vehicle
-//     let vehicle = await Vehicle.findOne({
-//       vehicleNumber: normalizedVehicleNumber,
-//       siteId,
-//     });
-
-//     if (vehicle?.isInside) {
-//       return res.status(409).json({
-//         success: false,
-//         message: "Vehicle is already inside the site",
-//       });
-//     }
-
-//     // Create or update vehicle
-//     if (!vehicle) {
-//       vehicle = await Vehicle.create({
-//         vehicleNumber: normalizedVehicleNumber,
-//         vehicleType: vehicleType || "TRUCK",
-//         driverName: driverName || "",
-//         driverPhone: driverPhone || "",
-//         vendorId: vendorId || null, // Allow null for personal vehicles
-//         siteId,
-//         clientId,
-//         isInside: true,
-//         lastEntryAt: entryTime ? new Date(entryTime) : new Date(),
-//         createdBy: userId,
-//         isPersonalVehicle: isPersonalVehicle,
-//       });
-//     } else {
-//       vehicle.driverName = driverName || vehicle.driverName;
-//       vehicle.driverPhone = driverPhone || vehicle.driverPhone;
-//       vehicle.vehicleType = vehicleType || vehicle.vehicleType;
-//       vehicle.vendorId = vendorId || vehicle.vendorId;
-//       vehicle.isInside = true;
-//       vehicle.lastEntryAt = entryTime ? new Date(entryTime) : new Date();
-//       vehicle.isPersonalVehicle = isPersonalVehicle;
-//       await vehicle.save();
-//     }
-
-//     // Fetch site for PM assignment
-//     const site = await Site.findById(siteId);
-
-//     // 🔥 FIX: Structure entryMedia properly
-//     // Handle both old array format and new object format
-//     let photosObject = {
-//       frontView: null,
-//       backView: null,
-//       loadView: null,
-//       driverView: null,
-//     };
-
-//     if (media?.photos) {
-//       if (Array.isArray(media.photos)) {
-//         // 🔥 OLD FORMAT: Convert array to object
-//         console.warn(
-//           "⚠️ Received photos as array (old format), converting to object",
-//         );
-//         const photoKeys = ["frontView", "backView", "loadView", "driverView"];
-//         media.photos.forEach((photoUrl, index) => {
-//           if (photoUrl && photoKeys[index]) {
-//             photosObject[photoKeys[index]] = photoUrl;
-//           }
-//         });
-//       } else if (typeof media.photos === "object") {
-//         // 🔥 NEW FORMAT: Already an object with keys
-//         // console.log('✅ Received photos as object (new format)');
-//         photosObject = {
-//           frontView: media.photos.frontView || null,
-//           backView: media.photos.backView || null,
-//           loadView: media.photos.loadView || null,
-//           driverView: media.photos.driverView || null,
-//         };
-//       }
-//     }
-
-//     // 🔥 Validate that photo keys are file paths, not MongoDB IDs
-//     Object.entries(photosObject).forEach(([key, value]) => {
-//       if (value) {
-//         if (value.length === 24 && !value.includes("/")) {
-//           console.error(`❌ INVALID ${key}: Looks like MongoDB ID: ${value}`);
-//           console.error(
-//             "   Expected format: vehicles/entry/photos/123-front.jpg",
-//           );
-//           photosObject[key] = null; // Reset invalid values
-//         } else if (!value.includes("/")) {
-//           console.error(`❌ INVALID ${key}: Missing folder path: ${value}`);
-//           photosObject[key] = null;
-//         } else {
-//           // console.log(`✅ ${key}: ${value}`);
-//         }
-//       }
-//     });
-
-//     const entryMedia = {
-//       anprImage: media?.anprImage || null,
-//       photos: photosObject, // 🔥 Object with keys, not array
-//       video: media?.video || null,
-//       challanImage: media?.challanImage || null,
-//     };
-
-//     // console.log('📸 Structured entryMedia:', JSON.stringify(entryMedia, null, 2));
-
-//     // Create trip
-//     const trip = await Trip.create({
-//       clientId,
-//       siteId,
-//       vehicleId: vehicle._id,
-//       vendorId: vendorId || null, // Allow null for personal vehicles
-//       supervisorId: userId,
-//       projectManagerId: site?.projectManagerId || clientId,
-//       plateText: normalizedVehicleNumber,
-//       driverName: driverName || "",
-//       entryAt: entryTime ? new Date(entryTime) : new Date(),
-//       entryGate: entryGate || "Mobile Manual Entry",
-//       status: "INSIDE",
-//       purpose: purpose || "Manual Entry",
-//       loadStatus: loadStatus || "FULL",
-//       entryMedia: entryMedia, // 🔥 Properly structured media
-//       notes: notes || "",
-//       createdBy: userId,
-//       source: "MOBILE",
-//       isPersonalVehicle: isPersonalVehicle,
-//     });
-
-//     return res.status(201).json({
-//       success: true,
-//       message: "Manual trip entry created successfully (mobile)",
-//       data: {
-//         tripId: trip.tripId,
-//         vehicleId: vehicle._id,
-//         entryAt: trip.entryAt,
-//         entryMedia: trip.entryMedia, // 🔥 Return for verification
-//       },
-//     });
-//   } catch (error) {
-//     console.error("❌ Mobile manual trip error:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Failed to create manual trip entry",
-//       error: process.env.NODE_ENV === "development" ? error.message : undefined,
-//     });
-//   }
-// };
-
-
 export const createManualTripMobile = async (req, res) => {
   try {
     const userId = req.user._id;
     const { siteId, clientId } = req.user;
+
+    if (!siteId || !clientId) {
+      return res.status(403).json({
+        success: false,
+        message: "User not assigned to site or client",
+      });
+    }
 
     const {
       vehicleNumber,
@@ -1173,6 +978,7 @@ export const createManualTripMobile = async (req, res) => {
       driverName,
       driverPhone,
       vendorId,
+      entryTime,
       purpose,
       loadStatus,
       entryGate,
@@ -1180,85 +986,279 @@ export const createManualTripMobile = async (req, res) => {
       media,
     } = req.body;
 
+    // 🔥 FIX: Make vendorId optional for certain vehicle types (like personal vehicles/bikes)
     if (!vehicleNumber) {
-      return res.status(400).json({ message: "Vehicle number required" });
+      return res.status(400).json({
+        success: false,
+        message: "Vehicle number is required",
+      });
     }
 
-    const plate = vehicleNumber.toUpperCase();
-    const personalTypes = ["BIKE", "CAR", "SCOOTER", "PERSONAL"];
-    const isPersonal = personalTypes.includes((vehicleType || "").toUpperCase());
+    // If vehicle is a personal vehicle type, allow vendorId to be optional
+    const personalVehicleTypes = [
+      "BIKE",
+      "CAR",
+      "SCOOTER",
+      "MOTORCYCLE",
+      "PERSONAL",
+    ];
+    const isPersonalVehicle = personalVehicleTypes.includes(
+      (vehicleType || "").toUpperCase(),
+    );
 
-    let vehicle = await Vehicle.findOne({ vehicleNumber: plate, siteId });
+    if (!isPersonalVehicle && !vendorId) {
+      return res.status(400).json({
+        success: false,
+        message: "Vendor ID is required for commercial vehicles",
+        field: "vendorId",
+        validVehicleTypes: ["BIKE", "CAR", "SCOOTER", "MOTORCYCLE", "PERSONAL"],
+      });
+    }
+
+    const normalizedVehicleNumber = vehicleNumber.toUpperCase();
+
+    // Find existing vehicle
+    let vehicle = await Vehicle.findOne({
+      vehicleNumber: normalizedVehicleNumber,
+      siteId,
+    });
 
     if (vehicle?.isInside) {
-      return res.status(409).json({ message: "Already inside" });
+      return res.status(409).json({
+        success: false,
+        message: "Vehicle is already inside the site",
+      });
     }
 
+    // Create or update vehicle
     if (!vehicle) {
       vehicle = await Vehicle.create({
-        vehicleNumber: plate,
-        vehicleType,
-        driverName,
-        driverPhone,
-        vendorId: isPersonal ? null : vendorId,
+        vehicleNumber: normalizedVehicleNumber,
+        vehicleType: vehicleType || "TRUCK",
+        driverName: driverName || "",
+        driverPhone: driverPhone || "",
+        vendorId: vendorId || null, // Allow null for personal vehicles
         siteId,
         clientId,
         isInside: true,
-        lastEntryAt: new Date(),
+        lastEntryAt: entryTime ? new Date(entryTime) : new Date(),
         createdBy: userId,
-        isPersonalVehicle: isPersonal,
+        isPersonalVehicle: isPersonalVehicle,
       });
     } else {
-      Object.assign(vehicle, {
-        driverName,
-        driverPhone,
-        vehicleType,
-        vendorId: isPersonal ? null : vendorId,
-        isInside: true,
-        lastEntryAt: new Date(),
-      });
+      vehicle.driverName = driverName || vehicle.driverName;
+      vehicle.driverPhone = driverPhone || vehicle.driverPhone;
+      vehicle.vehicleType = vehicleType || vehicle.vehicleType;
+      vehicle.vendorId = vendorId || vehicle.vendorId;
+      vehicle.isInside = true;
+      vehicle.lastEntryAt = entryTime ? new Date(entryTime) : new Date();
+      vehicle.isPersonalVehicle = isPersonalVehicle;
       await vehicle.save();
     }
 
-    const entryMedia = {
-      photos: {
-        frontView: isValidMediaKey(media?.photos?.frontView),
-        backView: isValidMediaKey(media?.photos?.backView),
-        loadView: isValidMediaKey(media?.photos?.loadView),
-        driverView: isValidMediaKey(media?.photos?.driverView),
-      },
-      video: isValidMediaKey(media?.video),
-    };
-
+    // Fetch site for PM assignment
     const site = await Site.findById(siteId);
 
+    // 🔥 FIX: Structure entryMedia properly
+    // Handle both old array format and new object format
+    let photosObject = {
+      frontView: null,
+      backView: null,
+      loadView: null,
+      driverView: null,
+    };
+
+    if (media?.photos) {
+      if (Array.isArray(media.photos)) {
+        // 🔥 OLD FORMAT: Convert array to object
+        console.warn(
+          "⚠️ Received photos as array (old format), converting to object",
+        );
+        const photoKeys = ["frontView", "backView", "loadView", "driverView"];
+        media.photos.forEach((photoUrl, index) => {
+          if (photoUrl && photoKeys[index]) {
+            photosObject[photoKeys[index]] = photoUrl;
+          }
+        });
+      } else if (typeof media.photos === "object") {
+        // 🔥 NEW FORMAT: Already an object with keys
+        // console.log('✅ Received photos as object (new format)');
+        photosObject = {
+          frontView: media.photos.frontView || null,
+          backView: media.photos.backView || null,
+          loadView: media.photos.loadView || null,
+          driverView: media.photos.driverView || null,
+        };
+      }
+    }
+
+    // 🔥 Validate that photo keys are file paths, not MongoDB IDs
+    Object.entries(photosObject).forEach(([key, value]) => {
+      if (value) {
+        if (value.length === 24 && !value.includes("/")) {
+          console.error(`❌ INVALID ${key}: Looks like MongoDB ID: ${value}`);
+          console.error(
+            "   Expected format: vehicles/entry/photos/123-front.jpg",
+          );
+          photosObject[key] = null; // Reset invalid values
+        } else if (!value.includes("/")) {
+          console.error(`❌ INVALID ${key}: Missing folder path: ${value}`);
+          photosObject[key] = null;
+        } else {
+          // console.log(`✅ ${key}: ${value}`);
+        }
+      }
+    });
+
+    const entryMedia = {
+      anprImage: media?.anprImage || null,
+      photos: photosObject, // 🔥 Object with keys, not array
+      video: media?.video || null,
+      challanImage: media?.challanImage || null,
+    };
+
+    // console.log('📸 Structured entryMedia:', JSON.stringify(entryMedia, null, 2));
+
+    // Create trip
     const trip = await Trip.create({
       clientId,
       siteId,
       vehicleId: vehicle._id,
-      vendorId: isPersonal ? null : vendorId,
+      vendorId: vendorId || null, // Allow null for personal vehicles
       supervisorId: userId,
       projectManagerId: site?.projectManagerId || clientId,
-      plateText: plate,
-      driverName,
-      entryAt: new Date(),
+      plateText: normalizedVehicleNumber,
+      driverName: driverName || "",
+      entryAt: entryTime ? new Date(entryTime) : new Date(),
       entryGate: entryGate || "Mobile Manual Entry",
       status: "INSIDE",
-      purpose,
-      loadStatus,
-      entryMedia,
-      notes,
+      purpose: purpose || "Manual Entry",
+      loadStatus: loadStatus || "FULL",
+      entryMedia: entryMedia, // 🔥 Properly structured media
+      notes: notes || "",
+      createdBy: userId,
       source: "MOBILE",
-      isPersonalVehicle: isPersonal,
+      isPersonalVehicle: isPersonalVehicle,
     });
 
-    res.status(201).json({ success: true, tripId: trip.tripId });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false });
+    return res.status(201).json({
+      success: true,
+      message: "Manual trip entry created successfully (mobile)",
+      data: {
+        tripId: trip.tripId,
+        vehicleId: vehicle._id,
+        entryAt: trip.entryAt,
+        entryMedia: trip.entryMedia, // 🔥 Return for verification
+      },
+    });
+  } catch (error) {
+    console.error("❌ Mobile manual trip error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create manual trip entry",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
   }
 };
 
+// export const createManualTripMobile = async (req, res) => {
+//   try {
+//     const userId = req.user._id;
+//     const { siteId, clientId } = req.user;
+
+//     const {
+//       vehicleNumber,
+//       vehicleType,
+//       driverName,
+//       driverPhone,
+//       vendorId,
+//       purpose,
+//       loadStatus,
+//       entryGate,
+//       notes,
+//       media,
+//     } = req.body;
+
+//     if (!vehicleNumber) {
+//       return res.status(400).json({ message: "Vehicle number required" });
+//     }
+
+//     console.log(vendorId);
+
+//     const plate = vehicleNumber.toUpperCase();
+//     const personalTypes = ["BIKE", "CAR", "SCOOTER", "PERSONAL"];
+//     const isPersonal = personalTypes.includes((vehicleType || "").toUpperCase());
+
+//     let vehicle = await Vehicle.findOne({ vehicleNumber: plate, siteId });
+
+//     if (vehicle?.isInside) {
+//       return res.status(409).json({ message: "Already inside" });
+//     }
+
+//     if (!vehicle) {
+//       vehicle = await Vehicle.create({
+//         vehicleNumber: plate,
+//         vehicleType,
+//         driverName,
+//         driverPhone,
+//         vendorId: isPersonal ? null : vendorId,
+//         siteId,
+//         clientId,
+//         isInside: true,
+//         lastEntryAt: new Date(),
+//         createdBy: userId,
+//         isPersonalVehicle: isPersonal,
+//       });
+//     } else {
+//       Object.assign(vehicle, {
+//         driverName,
+//         driverPhone,
+//         vehicleType,
+//         vendorId: isPersonal ? null : vendorId,
+//         isInside: true,
+//         lastEntryAt: new Date(),
+//       });
+//       await vehicle.save();
+//     }
+
+//     const entryMedia = {
+//       photos: {
+//         frontView: isValidMediaKey(media?.photos?.frontView),
+//         backView: isValidMediaKey(media?.photos?.backView),
+//         loadView: isValidMediaKey(media?.photos?.loadView),
+//         driverView: isValidMediaKey(media?.photos?.driverView),
+//       },
+//       video: isValidMediaKey(media?.video),
+//     };
+
+//     const site = await Site.findById(siteId);
+
+//     const trip = await Trip.create({
+//       clientId,
+//       siteId,
+//       vehicleId: vehicle._id,
+//       vendorId: isPersonal ? null : vendorId,
+//       supervisorId: userId,
+//       projectManagerId: site?.projectManagerId || clientId,
+//       plateText: plate,
+//       driverName,
+//       entryAt: new Date(),
+//       entryGate: entryGate || "Mobile Manual Entry",
+//       status: "INSIDE",
+//       purpose,
+//       loadStatus,
+//       entryMedia,
+//       notes,
+//       source: "MOBILE",
+//       isPersonalVehicle: isPersonal,
+//     });
+
+//     res.status(201).json({ success: true, tripId: trip.tripId });
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ success: false });
+//   }
+// };
 
 /**
  * @desc   Export trip history
