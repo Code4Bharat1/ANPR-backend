@@ -127,7 +127,7 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import s3Client from "../lib/wasabi.js";
 
-const BUCKET = process.env.WASABI_BUCKET;
+const BUCKET = process.env.WASABI_BUCKET_NAME;
 
 export const getUploadUrl = async ({
   vehicleId,
