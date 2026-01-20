@@ -72,7 +72,7 @@ const vehicleSchema = new mongoose.Schema(
         vendorId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Vendor",
-            required: true,
+            required: false,
         },
 
         /* ==============================
