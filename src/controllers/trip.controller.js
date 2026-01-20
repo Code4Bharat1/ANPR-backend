@@ -965,10 +965,10 @@ export const createManualTripMobile = async (req, res) => {
     const userId = req.user._id;
     const { siteId, clientId } = req.user;
 
-    if (!siteId || !clientId) {
+    if (!siteId) {
       return res.status(403).json({
         success: false,
-        message: "User not assigned to site or client",
+        message: "User not assigned to any site",
       });
     }
 

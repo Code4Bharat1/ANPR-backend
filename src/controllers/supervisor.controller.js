@@ -912,21 +912,26 @@ export const exportAnalyticsReport = async (req, res, next) => {
 export const getSupervisorVendors = async (req, res) => {
   try {
     // Get sites assigned to supervisor
-    const assignedSites = await Site.find({ 
-      assignedSupervisors: req.user.id 
-    }).select('_id');
+    // const assignedSites = await Site.find({ 
+    //   supervisors: req.user.id 
+    // }).select('_id');
+
+    const assignedSite = await Supervisor.findById(req.user.id).select('siteId');
+    console.log(assignedSite);
     
-    const siteIds = assignedSites.map(site => site._id);
+    // const siteIds = assignedSites.map(site => site._id);
     
     // Get vendors assigned to these sites
     const vendors = await Vendor.find({
-      assignedSites: { $in: siteIds },
+      assignedSites: { $in: assignedSite.siteId },
       isActive: true
     })
     .select('name email phone address')
     .sort({ name: 1 });
+
+    console.log(vendors);
     
-    res.json({
+    res.status(200).json({
       success: true,
       data: vendors
     });
