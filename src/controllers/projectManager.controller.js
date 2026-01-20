@@ -7,7 +7,7 @@ import Trip from "../models/Trip.model.js";
 import Site from "../models/Site.model.js";
 import Vendor from "../models/Vendor.model.js";
 import DeviceModel from '../models/Device.model.js';
-import supervisorModel from '../models/supervisor.model.js';
+import Supervisor from '../models/supervisor.model.js';
 import Vehicle from '../models/Vehicle.model.js';
 import mongoose from 'mongoose';
 
@@ -170,7 +170,7 @@ export const getDashboardStats = async (req, res) => {
 
       Trip.countDocuments({ siteId: { $in: siteIds } }),
 
-      supervisorModel.countDocuments({
+      Supervisor.countDocuments({
         siteId: { $in: siteIds },
       }),
 
@@ -179,7 +179,7 @@ export const getDashboardStats = async (req, res) => {
         status: { $in: ["active", "in-progress", "ongoing", "started"] },
       }),
 
-      supervisorModel.countDocuments({
+      Supervisor.countDocuments({
         siteId: { $in: siteIds },
         isActive: true,
       }),
@@ -392,7 +392,7 @@ export const createSupervisor = async (req, res) => {
 
     const supervisorLimit = planConfig.limits.supervisor;
 
-    const existingSupervisors = await supervisorModel.countDocuments({
+    const existingSupervisors = await Supervisor.countDocuments({
       projectManagerId: req.user.id,
     });
 
@@ -403,7 +403,7 @@ export const createSupervisor = async (req, res) => {
     }
 
     // ✅ CREATE SUPERVISOR
-    const supervisor = await supervisorModel.create({
+    const supervisor = await Supervisor.create({
       name,
       email: email.toLowerCase().trim(),
       mobile,
@@ -449,7 +449,7 @@ export const updateSupervisor = async (req, res) => {
     const pmId = req.user.id;
 
     // Find the supervisor
-    const supervisor = await supervisorModel.findById(supervisorId);
+    const supervisor = await Supervisor.findById(supervisorId);
     
     if (!supervisor) {
       return res.status(404).json({ message: "Supervisor not found" });
@@ -503,19 +503,23 @@ export const updateSupervisor = async (req, res) => {
 export const getAllSupervisors = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-
+    
     const pm = await ProjectManager
-      .findOne({ userId })
+      .findOne({ _id : userId })
       .select("_id");
 
     if (!pm) {
-      return res.json([]);
+      return res.json("PM not found");
     }
 
-    const supervisors = await supervisorModel
+    
+
+    const supervisors = await Supervisor
       .find({ projectManagerId: pm._id })
       .populate("siteId", "name")
+      .populate("projectManagerId", "name")
       .lean();
+    
 
     res.json(supervisors);
   } catch (err) {
@@ -558,7 +562,7 @@ export const assignSiteToSupervisor = async (req, res) => {
 };
 export const toggleSupervisorStatus = async (req, res) => {
   try {
-    const supervisor = await supervisorModel.findById(req.params.id);
+    const supervisor = await Supervisor.findById(req.params.id);
     if (!supervisor) {
       return res.status(404).json({ message: "Supervisor not found" });
     }
