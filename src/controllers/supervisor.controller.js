@@ -1024,7 +1024,7 @@ export const getSupervisorVendors = async (req, res) => {
     // }).select('_id');
 
     const assignedSite = await Supervisor.findById(req.user.id).select('siteId');
-    console.log(assignedSite);
+    // console.log(assignedSite);
     
     // const siteIds = assignedSites.map(site => site._id);
     
@@ -1036,7 +1036,7 @@ export const getSupervisorVendors = async (req, res) => {
     .select('name email phone address')
     .sort({ name: 1 });
 
-    console.log(vendors);
+    // console.log(vendors);
     
     res.status(200).json({
       success: true,

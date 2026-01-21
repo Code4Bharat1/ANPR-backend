@@ -282,7 +282,7 @@ export const listDevices = async (req, res, next) => {
     const formattedDevices = devices.map(device => formatDeviceResponse(device));
 
     // Debug: Check formatted data
-    console.log("📋 Formatted devices first item:", formattedDevices[0]);
+    // console.log("📋 Formatted devices first item:", formattedDevices[0]);
 
     res.json(formattedDevices);
   } catch (e) {

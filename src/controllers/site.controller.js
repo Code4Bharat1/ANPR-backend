@@ -394,7 +394,7 @@ export const getPMSiteDetails = async (req, res) => {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    console.log('🔍 Fetching entry/exit data for site:', siteId);
+    // console.log('🔍 Fetching entry/exit data for site:', siteId);
 
     // ✅ FIX 1: Get recent entry logs from Trip model
     const recentEntries = await Trip.find({
@@ -407,7 +407,7 @@ export const getPMSiteDetails = async (req, res) => {
       .limit(10)
       .lean();
 
-    console.log('✅ Recent entries found:', recentEntries.length);
+    // console.log('✅ Recent entries found:', recentEntries.length);
 
     // ✅ FIX 2: Get recent exit logs from Trip model
     const recentExits = await Trip.find({
@@ -420,7 +420,7 @@ export const getPMSiteDetails = async (req, res) => {
       .limit(10)
       .lean();
 
-    console.log('✅ Recent exits found:', recentExits.length);
+    // console.log('✅ Recent exits found:', recentExits.length);
 
     // ✅ FIX 3: Get today's counts from Trip model
     const todayEntries = await Trip.countDocuments({
@@ -433,7 +433,7 @@ export const getPMSiteDetails = async (req, res) => {
       exitAt: { $gte: todayStart },
     });
 
-    console.log('✅ Today entries:', todayEntries, 'Today exits:', todayExits);
+    // console.log('✅ Today entries:', todayEntries, 'Today exits:', todayExits);
 
     // ✅ FIX 4: Format entry vehicles properly
     const formattedEntries = recentEntries.map((entry) => ({
@@ -531,11 +531,11 @@ export const getPMSiteDetails = async (req, res) => {
           : 0),
     };
 
-    console.log('✅ Sending response with:', {
-      entries: formattedEntries.length,
-      exits: formattedExits.length,
-      liveVehicles: formattedLiveVehicles.length
-    });
+    // console.log('✅ Sending response with:', {
+    //   entries: formattedEntries.length,
+    //   exits: formattedExits.length,
+    //   liveVehicles: formattedLiveVehicles.length
+    // });
 
     res.json(response);
   } catch (err) {

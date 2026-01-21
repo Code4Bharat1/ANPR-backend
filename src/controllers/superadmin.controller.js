@@ -536,11 +536,11 @@ export const createDevice = async (req, res) => {
       notes
     } = req.body;
 
-    console.log("🔥 Incoming siteId:", siteId);
-    console.log("🧠 DB:", mongoose.connection.name);
+    // console.log("🔥 Incoming siteId:", siteId);
+    // console.log("🧠 DB:", mongoose.connection.name);
 
     const siteCheck = await Site.findById(siteId);
-    console.log("🔥 siteCheck:", siteCheck?._id);
+    // console.log("🔥 siteCheck:", siteCheck?._id);
 
     const device = await Device.create({
       clientId,
