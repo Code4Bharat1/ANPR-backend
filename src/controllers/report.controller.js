@@ -71,152 +71,146 @@ export const siteWise = async (req, res, next) => {
 /* ======================================================
    GET REPORTS WITH FILTERS (Client Admin)
 ====================================================== */
-export const getReports = async (req, res, next) => {
+export const getReports = async (req, res) => {
   try {
     const { startDate, endDate, status, site } = req.query;
 
-    // console.log('🔍 GET REPORTS called for user:', req.user.id);
-    // console.log('🔍 User role:', req.user.role);
-    // console.log('🔍 User clientId:', req.user.clientId);
-
-    // 1. Admin ke assigned sites find karein
     let assignedSiteIds = [];
 
-    if (req.user.role === "admin") {
-      // Admin ke liye - uske client ke sabhi sites
-      const allSites = await Site.find({ clientId: req.user.clientId }, "_id");
-      assignedSiteIds = allSites.map((site) => site._id);
-      // console.log(`🏢 Admin ${req.user.id} ke total sites: ${assignedSiteIds.length}`);
-    } else if (req.user.role === "project_manager") {
-      // Project manager ke liye - assigned sites
-      const projectManager = await ProjectManager.findOne({
-        user: req.user.id,
-      }).populate("assignedSites", "_id");
-
-      if (projectManager) {
-        assignedSiteIds = projectManager.assignedSites.map((site) => site._id);
-      }
-      // console.log(`👷 Project Manager ${req.user.id} ke assigned sites: ${assignedSiteIds.length}`);
-    } else {
-      // Client ke liye - sabhi sites
-      const allSites = await Site.find({ clientId: req.user.clientId }, "_id");
-      assignedSiteIds = allSites.map((site) => site._id);
-      // console.log(`🏢 Client ${req.user.clientId} ke total sites: ${assignedSiteIds.length}`);
+    /* ----------------------------------------
+       1️⃣ Assigned Sites Resolution
+    ---------------------------------------- */
+    if (req.user.role === "admin" || req.user.role === "client") {
+      const sites = await Site.find(
+        { clientId: req.user.clientId },
+        "_id"
+      );
+      assignedSiteIds = sites.map(s => s._id);
     }
 
-    // Agar koi sites nahi hain toh empty array return karein
+    if (req.user.role === "project_manager") {
+      const pm = await ProjectManager.findOne({
+        email: req.user.email, // ✅ single source of truth
+      }).populate("assignedSites", "_id");
+
+      if (pm) {
+        assignedSiteIds = pm.assignedSites.map(s => s._id);
+      }
+    }
+
     if (assignedSiteIds.length === 0) {
-      // console.log('⚠️ No sites assigned to user');
       return res.json([]);
     }
 
-    // 2. Build query
+    /* ----------------------------------------
+       2️⃣ Build Query
+    ---------------------------------------- */
     const query = {
       clientId: req.user.clientId,
-      siteId: { $in: assignedSiteIds }, // Sirf assigned sites ke trips
+      siteId: { $in: assignedSiteIds },
     };
 
-    // console.log('📍 Querying trips for siteIds:', assignedSiteIds);
-
-    // Date filter - entryAt field use karein
     if (startDate && endDate) {
       query.entryAt = {
-        $gte: new Date(startDate),
-        $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999)),
+        $gte: new Date(`${startDate}T00:00:00.000Z`),
+        $lte: new Date(`${endDate}T23:59:59.999Z`),
       };
-      // console.log('📅 Date range:', query.entryAt);
     }
 
-    // Status filter
     if (status && status !== "All Status") {
       const statusMap = {
         Active: ["INSIDE", "active"],
         Completed: ["EXITED", "completed"],
       };
-
       if (statusMap[status]) {
         query.status = { $in: statusMap[status] };
-      } else {
-        query.status = status;
       }
     }
 
-    // Site filter (specific site select kiya ho toh)
     if (site && site !== "All Sites") {
-      // Site name se siteId find karein
       const selectedSite = await Site.findOne({
         name: site,
         clientId: req.user.clientId,
       });
-
       if (selectedSite) {
         query.siteId = selectedSite._id;
       }
     }
 
-    // console.log('🔍 Final query:', JSON.stringify(query, null, 2));
-
-    // 3. Get trips with populated data
+    /* ----------------------------------------
+       3️⃣ Fetch Trips (🔥 important populates)
+    ---------------------------------------- */
     const trips = await Trip.find(query)
-      .populate("siteId", "name siteId") // Site name aur siteId dono
-      .populate("vehicleId", "vehicleNumber")
+      .populate("vehicleId")
+      .populate("vendorId", "name")
+      .populate("siteId", "name location siteId")
+      .populate("createdBy", "name")               // ✅ Supervisor
+      .populate("projectManagerId", "name")  // ✅ PM
       .sort({ entryAt: -1 });
 
-    // console.log(`✅ Found ${trips.length} trips for user ${req.user.id}`);
+    /* ----------------------------------------
+       4️⃣ Normalize Status (same as PM report)
+    ---------------------------------------- */
+    const mapStatus = (status = "") => {
+      const s = status.toLowerCase();
+      if (s === "inside" || s === "active") return "active";
+      if (s === "exited" || s === "completed") return "completed";
+      if (s === "cancelled") return "cancelled";
+      return "unknown";
+    };
 
-    // 4. Format response
-    const formattedTrips = trips.map((trip) => {
-      const entryDate = trip.entryAt;
-      const exitDate = trip.exitAt;
+    // console.log("Trips : ", trips);
 
-      return {
-        id: trip._id,
-        tripId: trip.tripId || "N/A",
+    /* ----------------------------------------
+       5️⃣ Format Response (PM-style)
+    ---------------------------------------- */
+    const formattedTrips = trips.map(trip => ({
+      _id: trip._id,
+      tripId: trip.tripId || "N/A",
 
-        vehicleNumber:
-          trip.plateText ||
-          trip.vehicleNumber ||
-          trip.vehicleId?.vehicleNumber ||
-          "N/A",
+      vehicleId: trip.vehicleId || null,
 
-        // 👇 formatted (for UI)
-        entryTime: entryDate
-          ? new Date(entryDate).toLocaleString("en-IN", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-              hour12: true,
-            })
-          : "-",
+      vendorId: {
+        _id: trip.vendorId?._id,
+        name: trip.vendorId?.name || "N/A",
+      },
 
-        exitTime: exitDate
-          ? new Date(exitDate).toLocaleString("en-IN", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-              hour12: true,
-            })
-          : "-",
+      siteId: {
+        _id: trip.siteId?._id,
+        name: trip.siteId?.name || "N/A",
+        location: trip.siteId?.location,
+      },
 
-        // 🔥🔥🔥 THIS IS THE KEY FIX
-        entryAt: trip.entryAt,
-        exitAt: trip.exitAt,
+      entryAt: trip.entryAt,
+      exitAt: trip.exitAt,
 
-        status:
-          trip.status === "INSIDE" || trip.status === "active"
-            ? "Active"
-            : trip.status === "EXITED" || trip.status === "completed"
-              ? "Completed"
-              : trip.status || "Active",
+      purpose: trip.purpose || "N/A",
+      countofmaterials: trip.countofmaterials || "N/A",
 
-        site: trip.siteId?.name || trip.site || "-",
-        siteId: trip.siteId?._id || "-",
-      };
-    });
+      status: mapStatus(trip.status),
+      loadStatus: trip.loadStatus,
+
+      entryGate: trip.entryGate,
+      exitGate: trip.exitGate,
+
+      notes: trip.notes,
+
+      // ✅ Supervisor
+      createdBy: {
+        _id: trip.createdBy?._id,
+        name: trip.createdBy?.name || "N/A",
+      },
+
+      // ✅ Project Manager
+      projectManager: {
+        id: trip.projectManagerId?.id,
+        name: trip.projectManagerId?.name || "N/A",
+        email: trip.projectManagerId?.email || "N/A",
+      },
+
+      entryMedia: trip.entryMedia || null,
+      exitMedia: trip.exitMedia || null,
+    }));
 
     res.json(formattedTrips);
   } catch (err) {
@@ -227,6 +221,7 @@ export const getReports = async (req, res, next) => {
     });
   }
 };
+
 /*====================================================
    EXPORT REPORTS TO EXCEL - FIXED VERSION
    ✅ Includes: Site Name, Vehicle Number, Supervisor Name
