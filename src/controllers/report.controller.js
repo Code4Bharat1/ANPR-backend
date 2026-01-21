@@ -203,10 +203,10 @@ export const getReports = async (req, res) => {
 
       // ✅ Project Manager
       projectManager: {
-        id: trip.projectManagerId?.id,
+        _id: trip.projectManagerId?._id,
         name: trip.projectManagerId?.name || "N/A",
-        email: trip.projectManagerId?.email || "N/A",
       },
+
 
       entryMedia: trip.entryMedia || null,
       exitMedia: trip.exitMedia || null,
@@ -295,7 +295,8 @@ export const exportReports = async (req, res, next) => {
     const trips = await Trip.find(query)
       .populate("siteId", "name siteId address") // Site info
       .populate("vehicleId", "vehicleNumber plateNumber") // Vehicle info
-      .populate("supervisorId", "name email phone") // Supervisor info
+      .populate("supervisorId", "name email phone")
+      .populate("projectManagerId", "name email") // Supervisor info
       .populate("clientId", "companyName") // Client info (optional)
       .sort({ entryAt: -1 });
 
@@ -314,6 +315,7 @@ export const exportReports = async (req, res, next) => {
       // { header: 'Trip ID', key: 'tripId', width: 28 },
       { header: "Vehicle Number", key: "vehicleNumber", width: 18 },
       { header: "Site Name", key: "siteName", width: 25 },
+      { header: "Project Manager", key: "projectManager", width: 22 },
       { header: "Supervisor", key: "supervisor", width: 20 },
       { header: "Entry Time", key: "entryTime", width: 22 },
       { header: "Exit Time", key: "exitTime", width: 22 },
@@ -376,28 +378,29 @@ export const exportReports = async (req, res, next) => {
 
       // Extract supervisor name
       const supervisor = trip.supervisorId?.name || trip.supervisor || "-";
-
+      const projectManager =
+        trip.projectManagerId?.name || "-";
       // Format dates using entryAt and exitAt
       const entryTime = trip.entryAt
         ? new Date(trip.entryAt).toLocaleString("en-IN", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: true,
-          })
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        })
         : "-";
 
       const exitTime = trip.exitAt
         ? new Date(trip.exitAt).toLocaleString("en-IN", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: true,
-          })
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        })
         : "-";
 
       // Calculate duration
@@ -412,6 +415,7 @@ export const exportReports = async (req, res, next) => {
         vehicleNumber: vehicleNumber,
         siteName: siteName,
         supervisor: supervisor,
+        projectManager: projectManager,
         entryTime: entryTime,
         exitTime: exitTime,
         duration: duration,
@@ -566,6 +570,7 @@ export const getTripReportsPM = async (req, res) => {
       .populate("siteId", "name location siteId")
       .populate("createdBy", "name")
       .populate("clientId", "name")
+      
       .populate("projectManagerId", "name email")
       .sort({ entryAt: -1 });
 
@@ -809,23 +814,23 @@ export const exportReportsToExcelPM = async (req, res) => {
       "Load Status": report.loadStatus || "N/A",
       "Entry Time": report.entryAt
         ? new Date(report.entryAt).toLocaleString("en-IN", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: true,
-          })
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        })
         : "-",
       "Exit Time": report.exitAt
         ? new Date(report.exitAt).toLocaleString("en-IN", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: true,
-          })
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        })
         : "-",
       Duration: calculateDuration(report.entryAt, report.exitAt),
       "Entry Gate": report.entryGate || "-",
@@ -983,8 +988,8 @@ export const getReportStatsPM = async (req, res) => {
     const avgDuration =
       totalDuration.length > 0 && completedTrips > 0
         ? Math.floor(
-            totalDuration[0].totalDuration / completedTrips / (1000 * 60),
-          )
+          totalDuration[0].totalDuration / completedTrips / (1000 * 60),
+        )
         : 0;
 
     res.json({

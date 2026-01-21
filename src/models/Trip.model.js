@@ -57,7 +57,7 @@ const tripSchema = new mongoose.Schema(
     },
     projectManagerId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'ProjectManager',
     },
 
     // Vehicle & ANPR Details

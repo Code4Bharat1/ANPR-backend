@@ -367,6 +367,9 @@ export const getMySites = async (req, res) => {
 /**
  * GET SITE DETAILS - For Project Managers (FIXED VERSION)
  */
+/**
+ * GET SITE DETAILS - For Project Managers (FIXED VERSION)
+ */
 export const getPMSiteDetails = async (req, res) => {
   try {
     const pm = await ProjectManager.findById(req.user.id)
@@ -375,10 +378,9 @@ export const getPMSiteDetails = async (req, res) => {
 
     const siteId = req.params.id;
 
-    if (!pm?.assignedSites?.some((id) => id.toString() === siteId)) {
+    if (!pm?.assignedSites?.some(id => id.toString() === siteId)) {
       return res.status(403).json({ message: "Access denied to this site" });
     }
-
 
     const site = await Site.findById(siteId)
       .populate("supervisors", "name email phone")
@@ -390,108 +392,86 @@ export const getPMSiteDetails = async (req, res) => {
       return res.status(404).json({ message: "Site not found" });
     }
 
-    // Get today's date at 00:00:00
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    // console.log('🔍 Fetching entry/exit data for site:', siteId);
+    const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    // ✅ FIX 1: Get recent entry logs from Trip model
+    // 🔹 RECENT ENTRIES
     const recentEntries = await Trip.find({
       siteId,
-      entryAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      entryAt: { $exists: true, $ne: null, $gte: last24Hours },
     })
-      .populate('vendorId', 'companyName')
-      // .populate('driverId', 'name')
+      .populate("vendorId", "companyName")
       .sort({ entryAt: -1 })
       .limit(10)
       .lean();
 
-    // console.log('✅ Recent entries found:', recentEntries.length);
-
-    // ✅ FIX 2: Get recent exit logs from Trip model
+    // 🔹 RECENT EXITS
     const recentExits = await Trip.find({
-      siteId: siteId,
-      exitAt: { $ne: null, $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      siteId,
+      exitAt: { $exists: true, $ne: null, $gte: last24Hours },
     })
-      .populate('vendorId', 'companyName')
-      // .populate('driverId', 'name')
+      .populate("vendorId", "companyName")
       .sort({ exitAt: -1 })
       .limit(10)
       .lean();
 
-    // console.log('✅ Recent exits found:', recentExits.length);
-
-    // ✅ FIX 3: Get today's counts from Trip model
     const todayEntries = await Trip.countDocuments({
-      siteId: siteId,
-      entryAt: { $gte: todayStart },
+      siteId,
+      entryAt: { $exists: true, $gte: todayStart },
     });
 
     const todayExits = await Trip.countDocuments({
-      siteId: siteId,
-      exitAt: { $gte: todayStart },
+      siteId,
+      exitAt: { $exists: true, $gte: todayStart },
     });
 
-    // console.log('✅ Today entries:', todayEntries, 'Today exits:', todayExits);
-
-    // ✅ FIX 4: Format entry vehicles properly
-    const formattedEntries = recentEntries.map((entry) => ({
-      vehicleNumber: entry.vehicleNumber || 'N/A',
-      time: entry.entryAt ? entry.entryAt.toLocaleTimeString("en-IN", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }) : 'N/A',
-      driver: entry.driverId?.name || entry.driverName || "Unknown",
-      gate: entry.gateId?.name || "N/A",
-      vendor: entry.vendorId?.companyName || "N/A",
-    }));
+    // 🔹 ACTIVE VEHICLES
     const activeTrips = await Trip.find({
       siteId,
       status: "INSIDE",
-    }).lean();
-    const formattedActiveVehicles = activeTrips.map((trip) => ({
-      vehicleNumber: trip.vehicleNumber || trip.plateText || "N/A",
-      driver: trip.driverName || "Unknown",
-      entryTime: trip.entryAt
-        ? trip.entryAt.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
+    })
+      .populate("vendorId", "companyName")
+      .lean();
+
+    // 🔹 FORMATTERS
+    const formattedEntries = recentEntries.map(e => ({
+      vehicleNumber: e.vehicleNumber || e.plateText || "N/A",
+      time: e.entryAt
+        ? new Date(e.entryAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
+        : "N/A",
+      driver: e.driverName || "Unknown",
+      gate: e.gateId?.name || e.gateName || "N/A",
+      vendor: e.vendorId?.companyName || "N/A",
+      _id: e._id,
+    }));
+
+    const formattedExits = recentExits.map(e => ({
+      vehicleNumber: e.vehicleNumber || e.plateText || "N/A",
+      time: e.exitAt
+        ? new Date(e.exitAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
+        : "N/A",
+      driver: e.driverName || "Unknown",
+      gate: e.gateId?.name || e.gateName || "N/A",
+      vendor: e.vendorId?.companyName || "N/A",
+      _id: e._id,
+    }));
+
+    const formattedActiveVehicles = activeTrips.map(t => ({
+      vehicleNumber: t.vehicleNumber || t.plateText || "N/A",
+      driver: t.driverName || "Unknown",
+      vendor: t.vendorId?.companyName || "N/A",
+      entryTime: t.entryAt
+        ? new Date(t.entryAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
         : "N/A",
       status: "INSIDE",
-    }));
-    // ✅ FIX 5: Format exit vehicles properly
-    const formattedExits = recentExits.map((exit) => ({
-      vehicleNumber: exit.vehicleNumber || 'N/A',
-      time: exit.exitAt ? exit.exitAt.toLocaleTimeString("en-IN", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }) : 'N/A',
-      driver: exit.driverId?.name || exit.driverName || "Unknown",
-      gate: exit.gateId?.name || "N/A",
-      vendor: exit.vendorId?.companyName || "N/A",
+      _id: t._id,
     }));
 
-    // ✅ FIX 6: Format live vehicles if they exist
-    const formattedLiveVehicles = (site.liveVehicles || []).map((vehicle) => ({
-      vehicleNumber: vehicle.vehicleNumber || "N/A",
-      type: vehicle.type || "Unknown",
-      status: vehicle.status || "Idle",
-      driver: vehicle.driver || "Not assigned",
-      fuelLevel: vehicle.fuelLevel || 0,
-      hoursOperated: vehicle.hoursOperated || 0,
-      lastUpdate: vehicle.lastUpdate
-        ? vehicle.lastUpdate.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-        : "N/A",
-    }));
+    const vehiclesOnSite = activeTrips.length;
 
-    // Prepare the response
-    const response = {
-      // Basic site info
+    res.json({
       _id: site._id,
       name: site.name,
       location: site.location,
@@ -501,43 +481,29 @@ export const getPMSiteDetails = async (req, res) => {
       contactPhone: site.contactPhone,
       createdAt: site.createdAt,
 
-      // Populated data
       supervisors: site.supervisors || [],
       projectManagers: site.projectManagers || [],
       clientId: site.clientId,
 
-      // Enhanced traffic data
       entryVehicles: formattedEntries,
       exitVehicles: formattedExits,
-      todayEntries: todayEntries,
-      todayExits: todayExits,
+      todayEntries,
+      todayExits,
 
-      // Live vehicles
-      liveVehicles: formattedLiveVehicles,
+      activeVehicleList: formattedActiveVehicles,
+      vehiclesOnSite,
+      activeVehicles: vehiclesOnSite,
 
-      // Statistics
       supervisorCount: site.supervisors?.length || 0,
       projectManagerCount: site.projectManagers?.length || 0,
-      vehiclesOnSite: site.vehiclesOnSite || 0,
-      activeVehicles: formattedActiveVehicles.length,
-      vehiclesOnSite: formattedActiveVehicles.length,
-      activeVehicleList: formattedActiveVehicles,
+      totalVehicles: site.totalVehicles || 0,
 
+      utilization:
+        site.totalVehicles > 0
+          ? Math.round((vehiclesOnSite / site.totalVehicles) * 100)
+          : 0,
+    });
 
-      // Utilization
-      utilization: site.utilization ||
-        (site.totalVehicles > 0
-          ? Math.round((site.vehiclesOnSite / site.totalVehicles) * 100)
-          : 0),
-    };
-
-    // console.log('✅ Sending response with:', {
-    //   entries: formattedEntries.length,
-    //   exits: formattedExits.length,
-    //   liveVehicles: formattedLiveVehicles.length
-    // });
-
-    res.json(response);
   } catch (err) {
     console.error("❌ Error fetching site details:", err);
     res.status(500).json({
@@ -546,6 +512,7 @@ export const getPMSiteDetails = async (req, res) => {
     });
   }
 };
+
 
 /**
  * GET SITE TRAFFIC - For Project Managers

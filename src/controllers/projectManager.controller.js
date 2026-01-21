@@ -660,18 +660,95 @@ export const createVendor = async (req, res) => {
 // GET ALL VENDORS (FIXED)
 export const getVendors = async (req, res) => {
   try {
-    // Get vendors for current user's client
-    const vendors = await Vendor.find({ clientId: req.user.clientId })
-      .populate('assignedSites', 'name location')
-      .populate('projectManagerId', 'name email')  // ✅ Populate project manager info
-      .sort({ createdAt: -1 });
+    const clientId = req.user.clientId;
 
-    res.json(vendors);
+    // 🔹 Vendors
+    const vendors = await Vendor.find({ clientId })
+      .populate("assignedSites", "name location")
+      .populate("projectManagerId", "name email")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!vendors.length) return res.json([]);
+
+    const vendorIds = vendors.map(v => v._id);
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    // 🔹 Site-wise aggregation
+    const tripStats = await Trip.aggregate([
+      {
+        $match: {
+          vendorId: { $in: vendorIds },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            vendorId: "$vendorId",
+            siteId: "$siteId",
+          },
+          totalTrips: { $sum: 1 },
+          todayTrips: {
+            $sum: {
+              $cond: [{ $gte: ["$createdAt", todayStart] }, 1, 0],
+            },
+          },
+          activeTrips: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "INSIDE"] }, 1, 0],
+            },
+          },
+        },
+      },
+      {
+        $group: {
+          _id: "$_id.vendorId",
+          sites: {
+            $push: {
+              siteId: "$_id.siteId",
+              totalTrips: "$totalTrips",
+              todayTrips: "$todayTrips",
+              activeTrips: "$activeTrips",
+            },
+          },
+          totalTrips: { $sum: "$totalTrips" },
+          todayTrips: { $sum: "$todayTrips" },
+          activeTrips: { $sum: "$activeTrips" },
+        },
+      },
+    ]);
+
+    // 🔹 Map for fast lookup
+    const tripMap = {};
+    tripStats.forEach(v => {
+      tripMap[v._id.toString()] = v;
+    });
+
+    // 🔹 Final response
+    const response = vendors.map(vendor => {
+      const stats = tripMap[vendor._id.toString()] || {};
+
+      return {
+        ...vendor,
+        totalTrips: stats.totalTrips || 0,
+        todayTrips: stats.todayTrips || 0,
+        activeTrips: stats.activeTrips || 0,
+        siteWiseTrips: stats.sites || [],
+      };
+    });
+
+    res.json(response);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error fetching vendors", error: err.message });
+    console.error("❌ Error fetching vendors:", err);
+    res.status(500).json({
+      message: "Error fetching vendors",
+      error: err.message,
+    });
   }
 };
+
 
 // UPDATE VENDOR (FIXED)
 export const updateVendor = async (req, res) => {
