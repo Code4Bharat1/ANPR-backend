@@ -175,7 +175,7 @@ export const refresh = async (req, res, next) => {
 ====================================================== */
 export const logout = async (req, res, next) => {
   try {
-    const refreshToken = req.cookies.refreshToken;
+    const refreshToken = req.cookies?.refreshToken;
 
     if (refreshToken) {
       await RefreshToken.deleteOne({ token: refreshToken });
@@ -183,15 +183,17 @@ export const logout = async (req, res, next) => {
 
     res.clearCookie("refreshToken", {
       httpOnly: true,
-      sameSite: "strict",
       secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      path: "/", // ✅ VERY IMPORTANT
     });
 
-    res.json({ message: "Logged out successfully" });
+    return res.json({ message: "Logged out successfully" });
   } catch (err) {
     next(err);
   }
 };
+
 
 /* ======================================================
    REGISTER SUPER ADMIN (ONE TIME)
