@@ -117,34 +117,59 @@ export const analyticsSummary = async (req, res, next) => {
   try {
     const period = req.query.period || "7d";
     const { from, to } = getDateRange(period);
+    const previousPeriod = getPreviousDateRange(period);
 
+    // Parallel queries for better performance
     const [
       totalTrips,
       totalClients,
       totalSites,
-      totalDevices
+      totalDevices,
+      previousTrips,
+      previousClients
     ] = await Promise.all([
-      Trip.countDocuments({ createdAt: { $gte: from, $lte: to } }),
-      Client.countDocuments({ isActive: true }),
-      Site.countDocuments(),
-      Device.countDocuments()
+      Trip.countDocuments({ 
+        createdAt: { $gte: from, $lte: to } 
+      }),
+      Client.countDocuments({ 
+        createdAt: { $lte: to },
+        isActive: true 
+      }),
+      Site.countDocuments({ 
+        createdAt: { $lte: to } 
+      }),
+      Device.countDocuments({ 
+        createdAt: { $lte: to } 
+      }),
+      Trip.countDocuments({ 
+        createdAt: { 
+          $gte: previousPeriod.from, 
+          $lte: previousPeriod.to 
+        } 
+      }),
+      Client.countDocuments({ 
+        createdAt: { $lte: previousPeriod.to },
+        isActive: true 
+      })
     ]);
 
-    // Fix: Get top clients with proper error handling for sites field
-    const topClients = await Trip.aggregate([
-      { $match: { createdAt: { $gte: from, $lte: to } } },
-      { $group: { _id: "$clientId", trips: { $sum: 1 } } },
-      { $sort: { trips: -1 } },
-      { $limit: 5 },
+    // Top clients with proper aggregation
+    const topClients = await Client.aggregate([
       {
         $lookup: {
-          from: "clients",
+          from: "trips",
           localField: "_id",
-          foreignField: "_id",
-          as: "client"
+          foreignField: "clientId",
+          as: "clientTrips",
+          pipeline: [
+            {
+              $match: {
+                createdAt: { $gte: from, $lte: to }
+              }
+            }
+          ]
         }
       },
-      { $unwind: { path: "$client", preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
           from: "sites",
@@ -162,30 +187,28 @@ export const analyticsSummary = async (req, res, next) => {
         }
       },
       {
+        $addFields: {
+          trips: { $size: "$clientTrips" },
+          sites: { $size: "$clientSites" },
+          devices: { $size: "$clientDevices" }
+        }
+      },
+      { $sort: { trips: -1 } },
+      { $limit: 5 },
+      {
         $project: {
-          name: { 
-            $cond: {
-              if: { $and: ["$client", "$client.name"] },
-              then: "$client.name",
-              else: "Unknown Client"
-            }
-          },
+          name: { $ifNull: ["$clientname", "Unknown Client"] },
           trips: 1,
-          sites: { $size: "$clientSites" }, // Count from sites collection
-          devices: { $size: "$clientDevices" } // Count from devices collection
+          sites: 1,
+          devices: 1,
+          packageType: { $ifNull: ["$packageType", "Not Specified"] }
         }
       }
     ]);
 
-    // Calculate growth (simplified version)
-    const previousPeriod = getPreviousDateRange(period);
-    const previousTrips = await Trip.countDocuments({ 
-      createdAt: { $gte: previousPeriod.from, $lte: previousPeriod.to } 
-    });
-
-    const tripsGrowth = previousTrips > 0 
-      ? Math.round(((totalTrips - previousTrips) / previousTrips) * 100)
-      : totalTrips > 0 ? 100 : 0;
+    // Calculate growth percentages
+    const tripsGrowth = calculateGrowth(totalTrips, previousTrips);
+    const clientsGrowth = calculateGrowth(totalClients, previousClients);
 
     res.json({
       totalTrips,
@@ -194,9 +217,8 @@ export const analyticsSummary = async (req, res, next) => {
       totalDevices,
       totalRevenue: 0,
       growth: { 
-        trips: tripsGrowth, 
-        revenue: 0,
-        clients: 0 
+        trips: tripsGrowth,
+        clients: clientsGrowth
       },
       topClients,
       period: { from, to }
@@ -205,6 +227,89 @@ export const analyticsSummary = async (req, res, next) => {
     console.error('Analytics summary error:', e);
     next(e);
   }
+};
+
+// Helper function for growth calculation
+const calculateGrowth = (current, previous) => {
+  if (previous === 0) {
+    return current > 0 ? 100 : 0;
+  }
+  return Math.round(((current - previous) / previous) * 100);
+};
+
+// Fix date range function
+const getDateRange = (period = "7d") => {
+  const now = new Date();
+  const to = new Date(now); // End date is current time
+  
+  let from = new Date(now);
+  
+  // Set to date to end of day
+  to.setHours(23, 59, 59, 999);
+
+  switch (period) {
+    case "today":
+      from.setHours(0, 0, 0, 0);
+      break;
+    case "7d":
+      from.setDate(now.getDate() - 6); // Including today
+      from.setHours(0, 0, 0, 0);
+      break;
+    case "30d":
+      from.setDate(now.getDate() - 29); // Including today
+      from.setHours(0, 0, 0, 0);
+      break;
+    case "90d":
+      from.setDate(now.getDate() - 89); // Including today
+      from.setHours(0, 0, 0, 0);
+      break;
+    default:
+      from.setDate(now.getDate() - 6);
+      from.setHours(0, 0, 0, 0);
+  }
+
+  return { from, to };
+};
+
+// Fix previous date range
+const getPreviousDateRange = (period = "7d") => {
+  const now = new Date();
+  let to = new Date(now);
+  let from = new Date(now);
+
+  switch (period) {
+    case "today":
+      from.setDate(now.getDate() - 1);
+      from.setHours(0, 0, 0, 0);
+      to.setDate(now.getDate() - 1);
+      to.setHours(23, 59, 59, 999);
+      break;
+    case "7d":
+      from.setDate(now.getDate() - 13); // Previous 7 days
+      from.setHours(0, 0, 0, 0);
+      to.setDate(now.getDate() - 7);
+      to.setHours(23, 59, 59, 999);
+      break;
+    case "30d":
+      from.setDate(now.getDate() - 59);
+      from.setHours(0, 0, 0, 0);
+      to.setDate(now.getDate() - 30);
+      to.setHours(23, 59, 59, 999);
+      break;
+    case "90d":
+      from.setDate(now.getDate() - 179);
+      from.setHours(0, 0, 0, 0);
+      to.setDate(now.getDate() - 90);
+      to.setHours(23, 59, 59, 999);
+      break;
+    default:
+      from.setDate(now.getDate() - 13);
+      from.setHours(0, 0, 0, 0);
+      to.setDate(now.getDate() - 7);
+      to.setHours(23, 59, 59, 999);
+  }
+
+  return { from, to };
 };
 
 export const tripVolumeDaily = async (req, res, next) => {
@@ -272,65 +377,7 @@ export const clientDistribution = async (req, res, next) => {
   }
 };
 
-const getDateRange = (period = "7d") => {
-  const now = new Date();
-  let from = new Date();
 
-  switch (period) {
-    case "today":
-      from.setHours(0, 0, 0, 0);
-      break;
-    case "7d":
-      from.setDate(now.getDate() - 7);
-      break;
-    case "30d":
-      from.setDate(now.getDate() - 30);
-      break;
-    case "90d":
-      from.setDate(now.getDate() - 90);
-      break;
-    case "month":
-      from = new Date(now.getFullYear(), now.getMonth(), 1);
-      break;
-    default:
-      from.setDate(now.getDate() - 7);
-  }
-
-  return { from, to: now };
-};
-
-// Helper function for previous period comparison
-const getPreviousDateRange = (period = "7d") => {
-  const now = new Date();
-  let from = new Date();
-  let to = new Date();
-
-  switch (period) {
-    case "today":
-      from.setDate(now.getDate() - 1);
-      from.setHours(0, 0, 0, 0);
-      to.setDate(now.getDate() - 1);
-      to.setHours(23, 59, 59, 999);
-      break;
-    case "7d":
-      from.setDate(now.getDate() - 14);
-      to.setDate(now.getDate() - 7);
-      break;
-    case "30d":
-      from.setDate(now.getDate() - 60);
-      to.setDate(now.getDate() - 30);
-      break;
-    case "90d":
-      from.setDate(now.getDate() - 180);
-      to.setDate(now.getDate() - 90);
-      break;
-    default:
-      from.setDate(now.getDate() - 14);
-      to.setDate(now.getDate() - 7);
-  }
-
-  return { from, to };
-};
 // Add revenue analytics endpoint
 export const revenueAnalytics = async (req, res, next) => {
   try {

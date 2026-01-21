@@ -320,7 +320,6 @@ export const updateProjectManager = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // 🛑 Validate ObjectId
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid Project Manager ID" });
     }
@@ -330,11 +329,6 @@ export const updateProjectManager = async (req, res, next) => {
       return res.status(404).json({ message: "Project Manager not found" });
     }
 
-    /**
-     * 🔐 AUTHORIZATION RULE
-     * Client → can update only their own PMs
-     * Admin  → can update any PM
-     */
     if (
       req.user.role === "client" &&
       String(pm.clientId) !== String(req.user.clientId)
@@ -342,7 +336,6 @@ export const updateProjectManager = async (req, res, next) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    // ✅ Allowed fields only
     const {
       name,
       email,
@@ -360,9 +353,14 @@ export const updateProjectManager = async (req, res, next) => {
     if (mobile !== undefined) pm.mobile = mobile;
     if (location !== undefined) pm.location = location;
     if (status !== undefined) pm.status = status;
-    if (req.body.address !== undefined && req.body.address.trim() !== "") {
-      pm.address = req.body.address;
+
+    if (address !== undefined) {
+      if (!address.trim()) {
+        return res.status(400).json({ message: "Address is required" });
+      }
+      pm.address = address.trim();
     }
+
     if (assignedSites !== undefined) pm.assignedSites = assignedSites;
     if (supervisors !== undefined) pm.supervisors = supervisors;
     if (isActive !== undefined) pm.isActive = isActive;
@@ -378,9 +376,10 @@ export const updateProjectManager = async (req, res, next) => {
         email: pm.email,
         mobile: pm.mobile,
         location: pm.location,
+        address: pm.address,
         status: pm.status,
-        assignedSites: pm.assignedSites.length,
-        supervisors: pm.supervisors.length,
+        assignedSites: pm.assignedSites?.length || 0,
+        supervisors: pm.supervisors?.length || 0,
         isActive: pm.isActive,
       },
     });
@@ -388,6 +387,7 @@ export const updateProjectManager = async (req, res, next) => {
     next(err);
   }
 };
+
 
 
 export const createusers = async (req, res, next) => {
