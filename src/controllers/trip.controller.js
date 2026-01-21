@@ -899,6 +899,7 @@ export const createManualTrip = async (req, res) => {
         driverPhone,
         vendorId,
         siteId,
+         countofmaterials,
         clientId,
         isInside: true,
         lastEntryAt: new Date(),
