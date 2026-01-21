@@ -164,6 +164,7 @@ export const getTripHistory = async (req, res) => {
       
       const vehicleType = trip.vehicleId?.vehicleType || "N/A";
 
+
       // Get vendor name from multiple possible sources
       const vendorName =
         trip.vendorId?.name || trip.vendorId?.companyName || "N/A";
@@ -204,6 +205,7 @@ export const getTripHistory = async (req, res) => {
         site: trip.siteId?.name || "N/A",
         supervisor: trip.supervisorId?.name || "N/A",
         purpose: trip.purpose || "",
+        countofmaterials: trip.countofmaterials || "N/A",
         entryGate: trip.entryGate || "N/A",
         exitGate: trip.exitGate || "N/A",
         loadStatus: trip.loadStatus || "N/A",

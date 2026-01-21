@@ -544,6 +544,7 @@ export const getActiveVehicles = async (req, res, next) => {
         status: durationMinutes > OVERSTAY_MINUTES ? "overstay" : "loading",
         loadStatus: t.loadStatus || "FULL",
         purpose: t.purpose || "N/A",
+         countofmaterials: t.countofmaterials || "N/A",
         entryGate: t.entryGate || "N/A",
 
         entryMedia: t.entryMedia || null,
@@ -807,7 +808,7 @@ export const supervisorAnalytics = async (req, res, next) => {
       {
         $project: {
           _id: 0,
-          name: { $ifNull: ["$vendorInfo.companyName", "Unknown Vendor"] },
+          name: { $ifNull: ["$vendorInfo.name", "Unknown Vendor"] },
           trips: 1,
         },
       },
