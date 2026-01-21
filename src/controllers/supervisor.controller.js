@@ -30,6 +30,7 @@ export const createSupervisor = async (req, res, next) => {
       projectManagerId,
       shiftStart,
       shiftEnd,
+      address,
     } = req.body;
 
     if (!name || !email || !mobile || !password || !projectManagerId) {
@@ -77,6 +78,7 @@ export const createSupervisor = async (req, res, next) => {
       clientId: pm.clientId,
       projectManagerId,
       shiftStart,
+      address,  
       shiftEnd,
       createdBy: req.user.id,
     });

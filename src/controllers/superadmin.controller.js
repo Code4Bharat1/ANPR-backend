@@ -420,6 +420,7 @@ export const createClient = async (req, res, next) => {
       packageStart,
       packageEnd,
       location: address,
+      address,                    // ✅ FIXED
 
       // ✅ Correct limits mapping
       userLimits: {

@@ -324,6 +324,7 @@ export const getActiveTrips = async (req, res) => {
         // Status
         status: durationMinutes > OVERSTAY_MINUTES ? "overstay" : "loading",
         loadStatus: t.loadStatus || "FULL",
+        countofmaterials: t.countofmaterials || "N/A",
         purpose: t.purpose || "N/A",
         entryGate: t.entryGate || "N/A",
         notes: t.notes || "",
@@ -871,6 +872,7 @@ export const createManualTrip = async (req, res) => {
       purpose,
       loadStatus,
       entryGate,
+      countofmaterials,
       notes,
       media,
     } = req.body;
@@ -933,6 +935,7 @@ export const createManualTrip = async (req, res) => {
       siteId,
       vehicleId: vehicle._id,
       vendorId,
+    countofmaterials: vehicle.countofmaterials,
       supervisorId,
       projectManagerId: site?.projectManagerId || clientId,
       plateText: plate,
@@ -986,6 +989,7 @@ export const createManualTripMobile = async (req, res) => {
       loadStatus,
       entryGate,
       notes,
+      countofmaterials,
       media,
     } = req.body;
 
@@ -1043,6 +1047,7 @@ export const createManualTripMobile = async (req, res) => {
         vendorId: vendorId || null, // Allow null for personal vehicles
         siteId,
         clientId,
+        countofmaterials: countofmaterials || 0,
         supervisorId: userId,
         isInside: true,
         lastEntryAt: entryTime ? new Date(entryTime) : new Date(),
@@ -1133,6 +1138,7 @@ export const createManualTripMobile = async (req, res) => {
       projectManagerId: site?.projectManagerId || clientId,
       plateText: normalizedVehicleNumber,
       driverName: driverName || "",
+      countofmaterials: countofmaterials || 0,
       entryAt: entryTime ? new Date(entryTime) : new Date(),
       entryGate: entryGate || "Mobile Manual Entry",
       status: "INSIDE",
