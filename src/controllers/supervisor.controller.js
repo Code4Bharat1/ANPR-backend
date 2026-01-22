@@ -78,7 +78,7 @@ export const createSupervisor = async (req, res, next) => {
       clientId: pm.clientId,
       projectManagerId,
       shiftStart,
-      address,  
+      address,
       shiftEnd,
       createdBy: req.user.id,
     });
@@ -373,9 +373,9 @@ export const supervisorDashboard = async (req, res, next) => {
         site,
       ] = await Promise.all([
         // Vehicles currently inside
-        Trip.countDocuments({ 
-          siteId: new mongoose.Types.ObjectId(siteId), 
-          status: "INSIDE" 
+        Trip.countDocuments({
+          siteId: new mongoose.Types.ObjectId(siteId),
+          status: "INSIDE"
         }),
 
         // Today's entries
@@ -427,7 +427,7 @@ export const supervisorDashboard = async (req, res, next) => {
       const recentActivity = (recentTrips || []).map((t) => {
         const vehicleNumber = t.vehicleId?.vehicleNumber || t.plateText || "Unknown";
         const entryTime = t.entryAt || t.createdAt;
-        
+
         return {
           id: t._id?.toString(),
           tripId: t.tripId || "N/A",
@@ -535,16 +535,15 @@ export const getActiveVehicles = async (req, res, next) => {
         entryTimeISO: entryTime.toISOString(),
 
         // Duration
-        duration: `${Math.floor(durationMinutes / 60)}h ${
-          durationMinutes % 60
-        }m`,
+        duration: `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60
+          }m`,
         durationMinutes,
 
         // Status
         status: durationMinutes > OVERSTAY_MINUTES ? "overstay" : "loading",
         loadStatus: t.loadStatus || "FULL",
         purpose: t.purpose || "N/A",
-         countofmaterials: t.countofmaterials || "N/A",
+        countofmaterials: t.countofmaterials || "N/A",
         entryGate: t.entryGate || "N/A",
 
         entryMedia: t.entryMedia || null,
@@ -575,35 +574,41 @@ export const supervisorAnalytics = async (req, res, next) => {
     if (!siteId) {
       return res.status(400).json({ message: "Site not assigned" });
     }
-
-    // Date range
-    const now = new Date();
     let startDate;
+
+
+    const istNow = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+    );
 
     switch (period) {
       case "today":
-        startDate = new Date();
+        startDate = new Date(istNow);
         startDate.setHours(0, 0, 0, 0);
         break;
+
       case "last7days":
-        startDate = new Date();
+        startDate = new Date(istNow);
         startDate.setDate(startDate.getDate() - 7);
         break;
+
       case "last30days":
-        startDate = new Date();
+        startDate = new Date(istNow);
         startDate.setDate(startDate.getDate() - 30);
         break;
+
       case "thismonth":
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        startDate = new Date(istNow.getFullYear(), istNow.getMonth(), 1);
         break;
-      default:
-        startDate = new Date();
-        startDate.setDate(startDate.getDate() - 7);
     }
 
+
     // Basic counts
-    const todayStart = new Date();
+    const todayStart = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+    );
     todayStart.setHours(0, 0, 0, 0);
+
 
     const todayTrips = await Trip.countDocuments({
       siteId,
@@ -670,7 +675,13 @@ export const supervisorAnalytics = async (req, res, next) => {
       },
       {
         $group: {
-          _id: { $dayOfWeek: "$entryAt" },
+          _id: {
+            $dayOfWeek: {
+              date: "$entryAt",
+              timezone: "Asia/Kolkata"
+            }
+          }
+          ,
           entries: { $sum: 1 },
           exits: {
             $sum: { $cond: [{ $ne: ["$exitAt", null] }, 1, 0] },
@@ -708,7 +719,13 @@ export const supervisorAnalytics = async (req, res, next) => {
       },
       {
         $group: {
-          _id: { $hour: "$entryAt" },
+          _id: {
+            $hour: {
+              date: "$entryAt",
+              timezone: "Asia/Kolkata"
+            }
+          }
+          ,
           count: { $sum: 1 },
         },
       },
@@ -768,7 +785,7 @@ export const supervisorAnalytics = async (req, res, next) => {
     const totalVehicles = vehicleTypesData.reduce((sum, v) => sum + v.count, 0);
 
     const vehicleTypes = vehicleTypesData.map((v) => ({
-      type: v._id || "Unknown",
+      type: v.vehicleType || "Unknown",
       count: v.count,
       percentage: totalVehicles > 0 ? Math.round((v.count / totalVehicles) * 100) : 0,
     }));
@@ -783,17 +800,32 @@ export const supervisorAnalytics = async (req, res, next) => {
           entryAt: { $gte: startDate },
         },
       },
+
+      // 🔥 FIX: convert vendorId → ObjectId
+      {
+        $addFields: {
+          vendorObjectId: {
+            $cond: [
+              { $eq: [{ $type: "$vendorId" }, "objectId"] },
+              "$vendorId",
+              { $toObjectId: "$vendorId" },
+            ],
+          },
+        },
+      },
+
       {
         $group: {
-          _id: "$vendorId",
+          _id: "$vendorObjectId",
           trips: { $sum: 1 },
         },
       },
       { $sort: { trips: -1 } },
       { $limit: 5 },
+
       {
         $lookup: {
-          from: "vendors", // Your vendor collection name
+          from: "vendors",
           localField: "_id",
           foreignField: "_id",
           as: "vendorInfo",
@@ -816,12 +848,12 @@ export const supervisorAnalytics = async (req, res, next) => {
 
     // Calculate percentages
     const totalTopVendorTrips = topVendorsData.reduce((sum, v) => sum + v.trips, 0);
-    
+
     const topVendors = topVendorsData.map((v) => ({
       name: v.name,
       trips: v.trips,
-      percentage: totalTopVendorTrips > 0 
-        ? Math.round((v.trips / totalTopVendorTrips) * 100) 
+      percentage: totalTopVendorTrips > 0
+        ? Math.round((v.trips / totalTopVendorTrips) * 100)
         : 0,
     }));
 
@@ -831,7 +863,7 @@ export const supervisorAnalytics = async (req, res, next) => {
     // Get last period's average for comparison
     const lastPeriodStart = new Date(startDate);
     lastPeriodStart.setDate(lastPeriodStart.getDate() - 7);
-    
+
     const lastPeriodTrips = await Trip.find({
       siteId,
       exitAt: { $ne: null },
@@ -889,7 +921,7 @@ export const getMyAssignedSite = async (req, res, next) => {
 
     const site = await Site.findById(siteId)
       .populate("clientId", "name email")
-      
+
 
     if (!site) {
       return res.status(404).json({
@@ -952,10 +984,10 @@ export const exportAnalyticsReport = async (req, res, next) => {
 
     // Create Excel workbook
     const workbook = new ExcelJS.Workbook();
-    
+
     // Add a worksheet
     const worksheet = workbook.addWorksheet('Analytics Report');
-    
+
     // Add headers
     worksheet.columns = [
       { header: 'Trip ID', key: 'tripId', width: 20 },
@@ -1002,7 +1034,7 @@ export const exportAnalyticsReport = async (req, res, next) => {
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     );
-    
+
     const filename = `analytics-report-${new Date().toISOString().split('T')[0]}.xlsx`;
     res.setHeader(
       'Content-Disposition',
@@ -1028,29 +1060,29 @@ export const getSupervisorVendors = async (req, res) => {
 
     const assignedSite = await Supervisor.findById(req.user.id).select('siteId');
     // console.log(assignedSite);
-    
+
     // const siteIds = assignedSites.map(site => site._id);
-    
+
     // Get vendors assigned to these sites
     const vendors = await Vendor.find({
       assignedSites: { $in: assignedSite.siteId },
       isActive: true
     })
-    .select('name email phone address')
-    .sort({ name: 1 });
+      .select('name email phone address')
+      .sort({ name: 1 });
 
     // console.log(vendors);
-    
+
     res.status(200).json({
       success: true,
       data: vendors
     });
   } catch (error) {
     console.error('Error fetching supervisor vendors:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Failed to fetch vendors',
-      error: error.message 
+      error: error.message
     });
   }
 };

@@ -522,8 +522,33 @@ export const listClients = async (req, res, next) => {
 
 export const updateClient = async (req, res, next) => {
   try {
-    const old = await Client.findById(req.params.id);
-    const updated = await Client.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const clientId = req.params.id;
+    const old = await Client.findById(clientId);
+    if (!old) {
+      return res.status(404).json({ message: "Client not found" });
+    }
+
+    let updateData = { ...req.body };
+
+    /* 🔁 PACKAGE CHANGE HANDLING */
+    if (req.body.packageType && req.body.packageType !== old.packageType) {
+      const plan = PLANS[req.body.packageType];
+      if (!plan) {
+        return res.status(400).json({ message: "Invalid package type" });
+      }
+
+      updateData.userLimits = {
+        pm: plan.limits.pm,
+        supervisor: plan.limits.supervisor,
+      };
+      updateData.deviceLimits = plan.limits.devices;
+    }
+
+    const updated = await Client.findByIdAndUpdate(
+      clientId,
+      updateData,
+      { new: true }
+    );
 
     await logAudit({
       req,
@@ -539,20 +564,55 @@ export const updateClient = async (req, res, next) => {
   }
 };
 
-export const deactivateClient = async (req, res, next) => {
-  try {
-    const client = await Client.findById(req.params.id);
 
+export const deactivateClient = async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const clientId = req.params.id;
+
+    const client = await Client.findById(clientId).session(session);
     if (!client) {
+      await session.abortTransaction();
       return res.status(404).json({ message: "Client not found" });
     }
 
+    // 🚫 Already deactivated
+    if (!client.isActive) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        message: "Client is already deactivated",
+      });
+    }
+
+    /* =====================
+       DEACTIVATE CLIENT
+    ===================== */
     client.isActive = false;
-    await client.save();
+    client.deactivatedAt = new Date();
+    await client.save({ session });
 
-    // ✅ logout from all devices
-    await RefreshToken.deleteMany({ userId: client._id });
+    /* =====================
+       DISABLE ALL DEVICES
+    ===================== */
+    await Device.updateMany(
+      { clientId },
+      { $set: { isEnabled: false, isOnline: false } },
+      { session }
+    );
 
+    /* =====================
+       LOGOUT ALL USERS
+    ===================== */
+    await RefreshToken.deleteMany(
+      { clientId },
+      { session }
+    );
+
+    /* =====================
+       AUDIT LOG
+    ===================== */
     await logAudit({
       req,
       action: "DEACTIVATE",
@@ -560,14 +620,19 @@ export const deactivateClient = async (req, res, next) => {
       newValue: client,
     });
 
+    await session.commitTransaction();
+    session.endSession();
+
     res.json({
       message: "Client deactivated successfully",
     });
+
   } catch (e) {
+    await session.abortTransaction();
+    session.endSession();
     next(e);
   }
 };
-
 
 /* ======================================================
    DEVICE MANAGEMENT
@@ -581,40 +646,87 @@ export const createDevice = async (req, res) => {
       deviceType,
       serialNumber,
       ipAddress,
-      notes
+      notes,
     } = req.body;
 
-    // console.log("🔥 Incoming siteId:", siteId);
-    // console.log("🧠 DB:", mongoose.connection.name);
-
-    const siteCheck = await Site.findById(siteId);
-    // console.log("🔥 siteCheck:", siteCheck?._id);
-
-    const device = await Device.create({
-      clientId,
-      siteId: siteId || null,
-      deviceName,
-      devicetype: deviceType.toUpperCase(),
-      serialNo: serialNumber,
-      ipAddress,
-      notes
-    });
-
-    if (siteId) {
-      const updatedSite = await Site.findByIdAndUpdate(
-        siteId, // 👈 NO ObjectId conversion for test
-        { $addToSet: { assignedDevices: device._id } },
-        { new: true }
-      );
-
-      // console.log("✅ UPDATED SITE DOC:", updatedSite);
+    if (!clientId || !deviceType || !deviceName || !serialNumber || !ipAddress) {
+      return res.status(400).json({ message: "Missing required fields" });
     }
 
-    res.status(201).json({ message: "Device created", device });
+    const normalizedType = deviceType.toUpperCase();
+    if (!["ANPR", "BARRIER", "BIOMETRIC"].includes(normalizedType)) {
+      return res.status(400).json({ message: "Invalid device type" });
+    }
+
+    const clientObjectId = new mongoose.Types.ObjectId(clientId);
+
+    /* ================= CLIENT ================= */
+    const client = await Client.findById(clientObjectId);
+    if (!client) {
+      return res.status(404).json({ message: "Client not found" });
+    }
+
+    if (!client.isActive) {
+      return res.status(403).json({ message: "Client is inactive" });
+    }
+
+    /* ================= LIMIT ================= */
+    const allowedLimit = Number(client.deviceLimits?.[normalizedType] ?? 0);
+
+    // 🚫 HARD BLOCK
+    if (allowedLimit === 0) {
+      return res.status(403).json({
+        message: `${normalizedType} is not allowed in your package`,
+      });
+    }
+
+    const usedDevices = await Device.countDocuments({
+      clientId: clientObjectId,
+      devicetype: normalizedType,
+    });
+
+    if (usedDevices >= allowedLimit) {
+      return res.status(403).json({
+        message: `${normalizedType} limit exceeded (${usedDevices}/${allowedLimit})`,
+      });
+    }
+
+    /* ================= SITE ================= */
+    let site = null;
+    if (siteId) {
+      site = await Site.findOne({ _id: siteId, clientId: clientObjectId });
+      if (!site) {
+        return res.status(404).json({
+          message: "Site not found or does not belong to this client",
+        });
+      }
+    }
+
+    /* ================= CREATE ================= */
+    const device = await Device.create({
+      clientId: clientObjectId,
+      siteId,
+      deviceName,
+      devicetype: normalizedType,
+      serialNo: serialNumber,
+      ipAddress,
+      notes,
+    });
+
+    if (site) {
+      await Site.findByIdAndUpdate(siteId, {
+        $addToSet: { assignedDevices: device._id },
+      });
+    }
+
+    res.status(201).json({
+      message: "Device created successfully",
+      device,
+    });
 
   } catch (err) {
     console.error("❌ CREATE DEVICE ERROR:", err);
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ message: "Server error" });
   }
 };
 

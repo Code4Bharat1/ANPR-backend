@@ -607,6 +607,8 @@ export const getTripReportsPM = async (req, res) => {
       entryGate: trip.entryGate,
       exitGate: trip.exitGate,
       notes: trip.notes,
+      purpose:trip.purpose,
+      countofmaterials:trip.countofmaterials,
       createdBy: trip.createdBy,
 
       entryMedia: trip.entryMedia || null,
