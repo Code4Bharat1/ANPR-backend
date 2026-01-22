@@ -200,12 +200,12 @@ export const logout = async (req, res, next) => {
 ====================================================== */
 export const registerSuperAdmin = async (req, res, next) => {
   try {
-    const { name, email, password } = req.body || {};
+    const { fullName, email, password } = req.body || {};
 
     // 1️⃣ Required fields check
-    if (!name || !email || !password) {
+    if (!fullName || !email || !password) {
       return res.status(400).json({
-        message: "Name, email and password are required",
+        message: "Full name, email and password are required",
       });
     }
 
@@ -232,7 +232,7 @@ export const registerSuperAdmin = async (req, res, next) => {
       });
     }
 
-    // 5️⃣ Prevent duplicate email (extra safety)
+    // 5️⃣ Prevent duplicate email
     const emailExists = await SuperAdmin.findOne({ email });
     if (emailExists) {
       return res.status(409).json({
@@ -245,13 +245,13 @@ export const registerSuperAdmin = async (req, res, next) => {
 
     // 7️⃣ Create SuperAdmin
     const superAdmin = await SuperAdmin.create({
-      name,
+      fullName,                  // ✅ FIXED
       email,
       password: hashedPassword,
       role: "superadmin",
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       message: "SuperAdmin registered successfully",
       user: {
         id: superAdmin._id,
