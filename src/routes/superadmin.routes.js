@@ -2,7 +2,11 @@ import express from "express";
 import { verifyAccessToken } from "../middlewares/auth.middleware.js";
 import { authorizeRoles } from "../middlewares/role.middleware.js";
 import * as SA from "../controllers/superadmin.controller.js";
-import { checkDeviceLimit } from "../middlewares/checkDeviceLimit.middleware.js";
+import { 
+  checkDeviceLimit, 
+  checkDeviceLimitForToggle,
+  checkDeviceLimitForUpdate 
+} from '../middlewares/checkDeviceLimit.middleware.js';
 import { createClientSite,  deleteClientSite,   getAdminSiteById,   getAllSites, getSitesByClient, toggleClientSite, updateClientSite, } from "../controllers/site.controller.js";
 
 const router = express.Router();
@@ -42,8 +46,8 @@ router.post("/devices", ...guard,  checkDeviceLimit, SA.createDevice); // ✅ AD
 router.get("/devices/stats", ...guard, SA.deviceStats);
 router.get("/devices", ...guard, SA.listDevices);
 router.get("/devices/:id", ...guard, SA.getDeviceById); // optional
-router.put("/devices/:id", ...guard, SA.updateDevice);  // optional
-router.patch("/devices/:id/toggle", ...guard, SA.toggleDevice);
+router.put("/devices/:id", ...guard, checkDeviceLimitForUpdate, SA.updateDevice);  // optional
+router.patch("/devices/:id/toggle", ...guard, checkDeviceLimitForToggle,  SA.toggleDevice);
 router.delete("/devices/:id", ...guard, SA.deleteDevice); 
 
 

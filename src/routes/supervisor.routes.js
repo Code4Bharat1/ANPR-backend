@@ -91,6 +91,12 @@ router.post(
   authorizeRoles("supervisor"),
   createManualTrip  // यह सही controller है
 );
+router.post(
+  "/mobile/trips/manual",
+  verifyAccessToken,
+  authorizeRoles("supervisor"),
+  createManualTripMobile
+);
 
 // और GET endpoint अलग से बनाएं
 // router.get(
@@ -117,12 +123,6 @@ router.get(
   exportAnalyticsReport
 );
 
-router.post(
-  "/mobile/trips/manual",
-  verifyAccessToken,
-  authorizeRoles("supervisor"),
-  createManualTripMobile
-);
 
 // backend routes (supervisorRoutes.js)
 router.get('/vendors', verifyAccessToken, authorizeRoles('supervisor'), getSupervisorVendors);

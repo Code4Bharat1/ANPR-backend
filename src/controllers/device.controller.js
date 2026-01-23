@@ -5,78 +5,62 @@ import { logAudit } from "../middlewares/audit.middleware.js";
 
 export const registerDevice = async (req, res, next) => {
   try {
-    // console.log("📥 Received device registration request:", req.body); // Add debug
-    
-    const { serialNumber, deviceName, deviceType, clientId, siteId, ipAddress, notes } = req.body;
+    const {
+      serialNumber,
+      deviceName,
+      deviceType,
+      clientId,
+      siteId,
+      ipAddress,
+      notes
+    } = req.body;
 
-    // Validate required fields
-    if (!serialNumber || !deviceType) {
-      return res.status(400).json({ 
-        message: "serialNumber and deviceType are required",
-        received: req.body 
+    if (!serialNumber || !deviceType || !clientId || !siteId) {
+      return res.status(400).json({
+        message: "serialNumber, deviceType, clientId, siteId are required"
       });
     }
 
-    // If deviceName is empty, use serial number as default
+    // 🔁 Duplicate serial check
+    if (await Device.findOne({ serialNo: serialNumber })) {
+      return res.status(409).json({
+        message: "Device with this serial number already exists"
+      });
+    }
+
     const finalDeviceName = deviceName || `Device_${serialNumber}`;
 
-    // Check if device with this serial number already exists
-    const existingDevice = await Device.findOne({ serialNo: serialNumber });
-    if (existingDevice) {
-      return res.status(400).json({ message: "Device with this serial number already exists" });
-    }
-
-    // Validate client exists
-    if (clientId) {
-      const client = await Client.findById(clientId);
-      if (!client) {
-        return res.status(404).json({ message: "Client not found" });
-      }
-    }
-
-    // Validate site exists
-    if (siteId) {
-      const site = await Site.findById(siteId);
-      if (!site) {
-        return res.status(404).json({ message: "Site not found" });
-      }
-    }
-
-    // ✅ FIX: Add deviceName field
-    const device = await Device.create({ 
-      deviceName: finalDeviceName, // ✅ Add this line
-      devicetype: deviceType,
+    const device = await Device.create({
+      deviceName: finalDeviceName,
+      devicetype: deviceType.toUpperCase(), // ✅ single field
       serialNo: serialNumber,
       clientId,
       siteId,
       ipAddress,
       notes,
-      isOnline: false,
-      lastActive: new Date()
+      isEnabled: true,   // 🔐 counts for license
+      isOnline: false
     });
 
-    await logAudit({ 
-      req, 
-      action: "REGISTER", 
-      module: "DEVICE", 
-      newValue: device 
+    await logAudit({
+      req,
+      action: "REGISTER",
+      module: "DEVICE",
+      newValue: device
     });
-
-    // Populate client and site names for response
-    await device.populate([
-      { path: 'clientId', select: 'companyName name' },
-      { path: 'siteId', select: 'name' }
-    ]);
 
     res.status(201).json({
       message: "Device registered successfully",
-      data: formatDeviceResponse(device)
+      data: device
     });
+
   } catch (e) {
     console.error("❌ Device registration error:", e);
     next(e);
   }
 };
+
+
 
 export const updateDevice = async (req, res, next) => {
   try {
@@ -88,53 +72,37 @@ export const updateDevice = async (req, res, next) => {
       return res.status(404).json({ message: "Device not found" });
     }
 
-    const oldValue = { ...device.toObject() };
+    const oldValue = device.toObject();
 
-    // Validate client exists
-    if (clientId) {
-      const client = await Client.findById(clientId);
-      if (!client) {
-        return res.status(404).json({ message: "Client not found" });
-      }
-      device.clientId = clientId;
+    if (deviceType) {
+      device.devicetype = deviceType.toUpperCase(); // ✅ FIXED
     }
 
-    // Validate site exists
-    if (siteId) {
-      const site = await Site.findById(siteId);
-      if (!site) {
-        return res.status(404).json({ message: "Site not found" });
-      }
-      device.siteId = siteId;
-    }
-
-    if (deviceType) device.type = deviceType;
+    if (clientId) device.clientId = clientId;
+    if (siteId) device.siteId = siteId;
     if (ipAddress !== undefined) device.ipAddress = ipAddress;
     if (notes !== undefined) device.notes = notes;
 
     await device.save();
 
-    await logAudit({ 
-      req, 
-      action: "UPDATE", 
-      module: "DEVICE", 
-      oldValue, 
-      newValue: device 
+    await logAudit({
+      req,
+      action: "UPDATE",
+      module: "DEVICE",
+      oldValue,
+      newValue: device
     });
-
-    await device.populate([
-      { path: 'clientId', select: 'companyName name' },
-      { path: 'siteId', select: 'name' }
-    ]);
 
     res.json({
       message: "Device updated successfully",
-      data: formatDeviceResponse(device)
+      data: device
     });
+
   } catch (e) {
     next(e);
   }
 };
+
 
 export const deleteDevice = async (req, res, next) => {
   try {
@@ -164,40 +132,43 @@ export const deleteDevice = async (req, res, next) => {
 
 export const toggleDeviceStatus = async (req, res, next) => {
   try {
-    const { id } = req.params;
-
-    const device = await Device.findById(id);
+    const device = await Device.findById(req.params.id);
     if (!device) {
       return res.status(404).json({ message: "Device not found" });
     }
 
-    const oldStatus = device.isOnline;
-    device.isOnline = !device.isOnline;
+    const oldValue = {
+      isEnabled: device.isEnabled,
+      isOnline: device.isOnline
+    };
+
+    device.isEnabled = !device.isEnabled;   // 🔐 license on/off
+    device.isOnline = device.isEnabled;     // status follows enable
     device.lastActive = new Date();
-    
+
     await device.save();
 
-    await logAudit({ 
-      req, 
-      action: "STATUS_TOGGLE", 
-      module: "DEVICE", 
-      oldValue: { isOnline: oldStatus },
-      newValue: { isOnline: device.isOnline }
+    await logAudit({
+      req,
+      action: "TOGGLE",
+      module: "DEVICE",
+      oldValue,
+      newValue: {
+        isEnabled: device.isEnabled,
+        isOnline: device.isOnline
+      }
     });
-
-    await device.populate([
-      { path: 'clientId', select: 'companyName name' },
-      { path: 'siteId', select: 'name' }
-    ]);
 
     res.json({
-      message: `Device turned ${device.isOnline ? 'online' : 'offline'} successfully`,
-      data: formatDeviceResponse(device)
+      message: `Device ${device.isEnabled ? "enabled" : "disabled"} successfully`,
+      data: device
     });
+
   } catch (e) {
     next(e);
   }
 };
+
 
 export const assignDevice = async (req, res, next) => {
   try {
@@ -209,50 +180,37 @@ export const assignDevice = async (req, res, next) => {
       return res.status(404).json({ message: "Device not found" });
     }
 
-    const oldValue = { 
-      clientId: device.clientId, 
-      siteId: device.siteId 
+    const oldValue = {
+      clientId: device.clientId,
+      siteId: device.siteId
     };
 
-    if (clientId) {
-      const client = await Client.findById(clientId);
-      if (!client) {
-        return res.status(404).json({ message: "Client not found" });
-      }
-      device.clientId = clientId;
-    }
-
-    if (siteId) {
-      const site = await Site.findById(siteId);
-      if (!site) {
-        return res.status(404).json({ message: "Site not found" });
-      }
-      device.siteId = siteId;
-    }
+    if (clientId) device.clientId = clientId;
+    if (siteId) device.siteId = siteId;
 
     await device.save();
 
-    await logAudit({ 
-      req, 
-      action: "ASSIGN", 
-      module: "DEVICE", 
-      oldValue, 
-      newValue: { clientId: device.clientId, siteId: device.siteId }
+    await logAudit({
+      req,
+      action: "ASSIGN",
+      module: "DEVICE",
+      oldValue,
+      newValue: {
+        clientId: device.clientId,
+        siteId: device.siteId
+      }
     });
-
-    await device.populate([
-      { path: 'clientId', select: 'companyName name' },
-      { path: 'siteId', select: 'name' }
-    ]);
 
     res.json({
       message: "Device assigned successfully",
-      data: formatDeviceResponse(device)
+      data: device
     });
+
   } catch (e) {
     next(e);
   }
 };
+
 
 export const listDevices = async (req, res, next) => {
   try {

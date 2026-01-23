@@ -7,7 +7,8 @@ import SuperAdmin from "../models/superadmin.model.js";
 import Client from "../models/Client.model.js";
 import ProjectManager from "../models/ProjectManager.model.js";
 import Supervisor from "../models/supervisor.model.js";
-
+import { PLANS } from "../config/plans.js";
+import { getPlanFeatures } from "../utils/planFeatures.util.js";
 /* ======================================================
    ROLE → MODEL MAP (SAFE)
 ====================================================== */
@@ -34,12 +35,13 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // Normalize identifier
+    /* ================= IDENTIFIER ================= */
     const isEmail = identifier.includes("@");
     const query = isEmail
       ? { email: identifier.toLowerCase().trim() }
       : { mobile: identifier.trim() };
 
+    /* ================= FIND USER ================= */
     let user =
       (await SuperAdmin.findOne(query).select("+password")) ||
       (await Client.findOne(query).select("+password")) ||
@@ -56,27 +58,60 @@ export const login = async (req, res, next) => {
       });
     }
 
-    /* 🔐 PASSWORD CHECK (HASH + PLAIN FALLBACK) */
+    /* ================= PASSWORD ================= */
     const matchResult = await comparePassword(password, user.password);
-
     if (!matchResult) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    /* 🔁 AUTO-MIGRATION: PLAIN → HASH */
     if (matchResult === "PLAIN_MATCH") {
       user.password = await hashPassword(password);
       await user.save();
-      // console.log("🔐 Password auto-migrated for:", user.email || user.mobile);
     }
 
+    /* =====================================================
+       🔒 CLIENT + PLAN CHECK (CLIENT / PM / SUPERVISOR)
+    ===================================================== */
+    let client = null;
+
+    if (user.role === "client") {
+      client = user;
+    }
+
+    if (
+      (user.role === "project_manager" || user.role === "supervisor") &&
+      user.clientId
+    ) {
+      client = await Client.findById(user.clientId);
+    }
+
+    if (
+      client &&
+      client.packageEnd &&
+      new Date(client.packageEnd) < new Date()
+    ) {
+      return res.status(403).json({
+        message:
+          "Your subscription plan has expired. Please contact SuperAdmin.",
+        code: "PLAN_EXPIRED",
+        expiredOn: client.packageEnd,
+      });
+    }
+
+    /* =====================================================
+       🎯 PLAN FEATURES (BACKEND DECIDES)
+    ===================================================== */
+    const features = client
+      ? getPlanFeatures(client.packageType)
+      : null;
+
+    /* ================= TOKEN ================= */
     let clientId = user.clientId || null;
     if (user.role === "client") clientId = user._id;
 
-    // ✅ ADD EMAIL TO PAYLOAD
     const payload = {
       id: user._id,
-      email: user.email,  // ← ADD THIS LINE
+      email: user.email,
       role: user.role,
       clientId,
       siteId: user.siteId || null,
@@ -99,6 +134,7 @@ export const login = async (req, res, next) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
+    /* ================= RESPONSE ================= */
     res.json({
       accessToken,
       user: {
@@ -107,12 +143,15 @@ export const login = async (req, res, next) => {
         mobile: user.mobile,
         role: user.role,
         clientId,
+        packageType: client?.packageType || null,
       },
+      features, // 🔥 FRONTEND USE THIS
     });
   } catch (err) {
     next(err);
   }
 };
+
 
 /* ======================================================
    REFRESH TOKEN

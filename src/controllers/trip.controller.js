@@ -952,12 +952,29 @@ export const createManualTrip = async (req, res) => {
       notes,
       createdBy: supervisorId,
     });
+try {
+  const barrierDevice = site?.devices?.find(
+    d => d.type === "BARRIER" && d.isActive === true
+  );
 
+  if (barrierDevice?.ipAddress) {
+    await axios.post(
+      `http://${barrierDevice.ipAddress}/analytics/barrier`,
+      {},
+      { timeout: 2000 }
+    );
+  }
+} catch (e) {
+  console.error("⚠️ Barrier trigger failed:", e.message);
+}
     res.status(201).json({
       success: true,
       tripId: trip.tripId,
       entryMedia,
     });
+    // 🔓 Barrier trigger (non-blocking, no logic change)
+
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: "Failed" });
@@ -1153,6 +1170,22 @@ export const createManualTripMobile = async (req, res) => {
       source: "MOBILE",
       isPersonalVehicle: isPersonalVehicle,
     });
+    try {
+  const barrierDevice = site?.devices?.find(
+    d => d.type === "BARRIER" && d.isActive === true
+  );
+
+  if (barrierDevice?.ipAddress) {
+    await axios.post(
+      `http://${barrierDevice.ipAddress}/analytics/barrier`,
+      {},
+      { timeout: 2000 }
+    );
+  }
+} catch (e) {
+  console.error("⚠️ Mobile barrier trigger failed:", e.message);
+}
+
 
     return res.status(201).json({
       success: true,

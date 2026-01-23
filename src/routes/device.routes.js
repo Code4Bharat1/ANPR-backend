@@ -9,23 +9,24 @@ import {
   toggleDeviceStatus,
   listDevices 
 } from "../controllers/device.controller.js";
+import { checkDeviceLimit, checkDeviceLimitForToggle, checkDeviceLimitForUpdate } from "../middlewares/checkDeviceLimit.middleware.js";
 
 const router = express.Router();
 
 // Register new device
-router.post("/register", verifyAccessToken, authorizeRoles("superadmin"), registerDevice);
+router.post("/register", verifyAccessToken, authorizeRoles("superadmin"),  checkDeviceLimit,  registerDevice);
 
 // Update device
-router.put("/:id", verifyAccessToken, authorizeRoles("superadmin"), updateDevice);
+router.put("/:id", verifyAccessToken, authorizeRoles("superadmin"), checkDeviceLimitForUpdate, updateDevice);
 
 // Delete device
 router.delete("/:id", verifyAccessToken, authorizeRoles("superadmin"), deleteDevice);
 
 // Toggle device status (online/offline)
-router.patch("/:id/toggle", verifyAccessToken, authorizeRoles("superadmin"), toggleDeviceStatus);
+router.patch("/:id/toggle", verifyAccessToken, authorizeRoles("superadmin"), checkDeviceLimitForToggle, toggleDeviceStatus);
 
 // Assign device to client/site
-router.put("/:id/assign", verifyAccessToken, authorizeRoles("superadmin"), assignDevice);
+router.put("/:id/assign", verifyAccessToken, authorizeRoles("superadmin"),checkDeviceLimitForUpdate, assignDevice);
 
 // List all devices
 router.get("/", verifyAccessToken, authorizeRoles("superadmin", "admin", "project_manager"), listDevices);

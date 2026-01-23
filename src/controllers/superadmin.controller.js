@@ -646,86 +646,61 @@ export const createDevice = async (req, res) => {
       deviceType,
       serialNumber,
       ipAddress,
-      notes,
+      notes
     } = req.body;
 
-    if (!clientId || !deviceType || !deviceName || !serialNumber || !ipAddress) {
+    if (!clientId || !deviceType || !deviceName || !serialNumber || !ipAddress || !siteId) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
     const normalizedType = deviceType.toUpperCase();
-    if (!["ANPR", "BARRIER", "BIOMETRIC"].includes(normalizedType)) {
-      return res.status(400).json({ message: "Invalid device type" });
+
+    // Client check (basic)
+    const client = await Client.findById(clientId);
+    if (!client || !client.isActive) {
+      return res.status(403).json({ message: "Client inactive or not found" });
     }
 
-    const clientObjectId = new mongoose.Types.ObjectId(clientId);
-
-    /* ================= CLIENT ================= */
-    const client = await Client.findById(clientObjectId);
-    if (!client) {
-      return res.status(404).json({ message: "Client not found" });
+    // Site check
+    const site = await Site.findOne({ _id: siteId, clientId });
+    if (!site) {
+      return res.status(404).json({ message: "Site not found for this client" });
     }
 
-    if (!client.isActive) {
-      return res.status(403).json({ message: "Client is inactive" });
+    // Duplicate checks
+    if (await Device.findOne({ serialNo: serialNumber })) {
+      return res.status(409).json({ message: "Serial number already exists" });
     }
 
-    /* ================= LIMIT ================= */
-    const allowedLimit = Number(client.deviceLimits?.[normalizedType] ?? 0);
-
-    // 🚫 HARD BLOCK
-    if (allowedLimit === 0) {
-      return res.status(403).json({
-        message: `${normalizedType} is not allowed in your package`,
-      });
+    if (await Device.findOne({ ipAddress, clientId })) {
+      return res.status(409).json({ message: "IP already used for this client" });
     }
 
-    const usedDevices = await Device.countDocuments({
-      clientId: clientObjectId,
-      devicetype: normalizedType,
-    });
-
-    if (usedDevices >= allowedLimit) {
-      return res.status(403).json({
-        message: `${normalizedType} limit exceeded (${usedDevices}/${allowedLimit})`,
-      });
-    }
-
-    /* ================= SITE ================= */
-    let site = null;
-    if (siteId) {
-      site = await Site.findOne({ _id: siteId, clientId: clientObjectId });
-      if (!site) {
-        return res.status(404).json({
-          message: "Site not found or does not belong to this client",
-        });
-      }
-    }
-
-    /* ================= CREATE ================= */
+    // ✅ CREATE (limit already validated in middleware)
     const device = await Device.create({
-      clientId: clientObjectId,
+      clientId,
       siteId,
       deviceName,
       devicetype: normalizedType,
       serialNo: serialNumber,
       ipAddress,
       notes,
+      isEnabled: true,
+      isOnline: false
     });
 
-    if (site) {
-      await Site.findByIdAndUpdate(siteId, {
-        $addToSet: { assignedDevices: device._id },
-      });
-    }
+    await Site.findByIdAndUpdate(siteId, {
+      $addToSet: { assignedDevices: device._id }
+    });
 
     res.status(201).json({
+      success: true,
       message: "Device created successfully",
-      device,
+      data: device
     });
 
   } catch (err) {
-    console.error("❌ CREATE DEVICE ERROR:", err);
+    console.error("CREATE DEVICE ERROR:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
