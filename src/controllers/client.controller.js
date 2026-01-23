@@ -262,7 +262,7 @@ export const getClientDashboard = async (req, res, next) => {
 
 export const createProjectManager = async (req, res, next) => {
   try {
-    const { name, email, mobile, password, assignedSites = [] } = req.body;
+    const { name, email, mobile, password, assignedSites, address = [] } = req.body;
 
     const pm = await ProjectManager.create({
       name,
@@ -270,6 +270,7 @@ export const createProjectManager = async (req, res, next) => {
       mobile,
       password,
       assignedSites,
+      address,
       clientId: req.user.clientId,
       createdBy: req.user.id,
       role: "project_manager",
