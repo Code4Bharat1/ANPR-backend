@@ -24,19 +24,19 @@ export const dashboardOverview = async (req, res, next) => {
 
     const totalSites = await Site.countDocuments();
 
-    // Total devices (ANPR + BARRIER)
+    // 🔹 Total devices (ALL)
     const totalDevices = await Device.countDocuments();
     const activeDevices = await Device.countDocuments({ isEnabled: true });
 
-    // ANPR devices stats
+    // 🔹 ANPR stats
     const totalANPRDevices = await Device.countDocuments({ devicetype: "ANPR" });
     const onlineANPRDevices = await Device.countDocuments({
       devicetype: "ANPR",
-      isOnline: true
+      isOnline: true,
     });
     const offlineANPRCount = await Device.countDocuments({
       devicetype: "ANPR",
-      isOnline: false
+      isOnline: false,
     });
 
     const offlineANPRList = await Device.find(
@@ -44,15 +44,15 @@ export const dashboardOverview = async (req, res, next) => {
       { serialNo: 1, siteId: 1, lastActive: 1, ipAddress: 1 }
     ).populate("siteId", "name");
 
-    // BARRIER devices stats
+    // 🔹 BARRIER stats
     const totalBarriers = await Device.countDocuments({ devicetype: "BARRIER" });
     const onlineBarriers = await Device.countDocuments({
       devicetype: "BARRIER",
-      isOnline: true
+      isOnline: true,
     });
     const offlineBarriersCount = await Device.countDocuments({
       devicetype: "BARRIER",
-      isOnline: false
+      isOnline: false,
     });
 
     const offlineBarrierList = await Device.find(
@@ -60,8 +60,28 @@ export const dashboardOverview = async (req, res, next) => {
       { serialNo: 1, siteId: 1, lastActive: 1, ipAddress: 1 }
     ).populate("siteId", "name");
 
+    // 🔹 BIOMETRIC stats ✅
+    const totalBiometricDevices = await Device.countDocuments({
+      devicetype: "BIOMETRIC",
+    });
+    const onlineBiometricDevices = await Device.countDocuments({
+      devicetype: "BIOMETRIC",
+      isOnline: true,
+    });
+    const offlineBiometricCount = await Device.countDocuments({
+      devicetype: "BIOMETRIC",
+      isOnline: false,
+    });
+
+    const offlineBiometricList = await Device.find(
+      { devicetype: "BIOMETRIC", isOnline: false },
+      { serialNo: 1, siteId: 1, lastActive: 1, ipAddress: 1 }
+    ).populate("siteId", "name");
+
+    // 🔹 Today trips
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
+
     const todayTrips = await Trip.countDocuments({
       createdAt: { $gte: todayStart },
     });
@@ -79,6 +99,7 @@ export const dashboardOverview = async (req, res, next) => {
         activeDevices,
         totalANPRDevices,
         totalBarriers,
+        totalBiometricDevices, // ✅ added
         todayTrips,
       },
       deviceHealth: {
@@ -91,11 +112,18 @@ export const dashboardOverview = async (req, res, next) => {
         offline: offlineBarriersCount,
         offlineBarriers: offlineBarrierList,
       },
+      biometricHealth: {
+        online: onlineBiometricDevices,
+        offline: offlineBiometricCount,
+        offlineBiometricDevices: offlineBiometricList,
+      },
       systemHealth: {
         server: "Operational",
         database: "Healthy",
         connectivity:
-          offlineANPRCount > 0 || offlineBarriersCount > 0
+          offlineANPRCount > 0 ||
+          offlineBarriersCount > 0 ||
+          offlineBiometricCount > 0
             ? "Degraded"
             : "Operational",
       },
@@ -104,6 +132,7 @@ export const dashboardOverview = async (req, res, next) => {
     next(e);
   }
 };
+
 
 /* ======================================================
    ANALYTICS - FIXED VERSION
