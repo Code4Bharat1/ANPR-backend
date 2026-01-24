@@ -25,6 +25,7 @@ import {
   getSettings,
   updateSettings,
   updateSupervisor,
+  deleteSupervisor,
   
 } from '../controllers/projectManager.controller.js';
 import { updateVendor } from '../controllers/vendor.controller.js';
@@ -96,7 +97,8 @@ router.get('/supervisors', verifyAccessToken, authorizeRoles('project_manager','
 router.put('/supervisors/:id', verifyAccessToken, authorizeRoles('project_manager'), updateSupervisor); // FIXED PATH
 router.patch('/supervisors/:id/assign-site', verifyAccessToken, authorizeRoles('project_manager'), assignSiteToSupervisor);
 router.patch('/supervisors/:id/enable-disable', verifyAccessToken, authorizeRoles('project_manager'), toggleSupervisorStatus);
-
+// Add this DELETE route to your router file
+router.delete('/supervisors/:id', verifyAccessToken, authorizeRoles('project_manager'), deleteSupervisor);
 // Live Vehicles monitoring
 router.get('/live-monitoring/vehicles', verifyAccessToken, authorizeRoles('project_manager'), getLiveVehicles);
 

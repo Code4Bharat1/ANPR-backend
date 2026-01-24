@@ -146,7 +146,9 @@ export const getDashboardStats = async (req, res) => {
   try {
     const projectManagerId = new mongoose.Types.ObjectId(req.user.id);
 
-    // 1️⃣ Get PM with assigned sites
+    /* =========================
+       1️⃣ GET PM WITH SITES
+    ========================= */
     const pm = await ProjectManager.findById(projectManagerId)
       .populate({
         path: "assignedSites",
@@ -157,7 +159,33 @@ export const getDashboardStats = async (req, res) => {
     const assignedSites = pm?.assignedSites || [];
     const siteIds = assignedSites.map((s) => s._id);
 
-    // 2️⃣ Counts based on assigned sites
+    /* =========================
+       STATUS NORMALIZATION
+    ========================= */
+    const ACTIVE_STATUSES = [
+      "INSIDE",
+      "inside",
+      "active",
+      "in-progress",
+      "ongoing",
+      "started",
+    ];
+
+    const COMPLETED_STATUSES = [
+      "EXITED",
+      "exited",
+      "completed",
+      "finished",
+      "done",
+      "closed",
+    ];
+
+    const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
+    const todayEnd = new Date(new Date().setHours(23, 59, 59, 999));
+
+    /* =========================
+       2️⃣ DASHBOARD COUNTS
+    ========================= */
     const [
       totalSites,
       totalTrips,
@@ -169,7 +197,9 @@ export const getDashboardStats = async (req, res) => {
     ] = await Promise.all([
       assignedSites.length,
 
-      Trip.countDocuments({ siteId: { $in: siteIds } }),
+      Trip.countDocuments({
+        siteId: { $in: siteIds },
+      }),
 
       Supervisor.countDocuments({
         siteId: { $in: siteIds },
@@ -177,7 +207,7 @@ export const getDashboardStats = async (req, res) => {
 
       Trip.countDocuments({
         siteId: { $in: siteIds },
-        status: { $in: ["active", "in-progress", "ongoing", "started"] },
+        status: { $in: ACTIVE_STATUSES },
       }),
 
       Supervisor.countDocuments({
@@ -187,19 +217,18 @@ export const getDashboardStats = async (req, res) => {
 
       Trip.countDocuments({
         siteId: { $in: siteIds },
-        createdAt: {
-          $gte: new Date(new Date().setHours(0, 0, 0, 0)),
-          $lte: new Date(new Date().setHours(23, 59, 59, 999)),
-        },
+        entryAt: { $gte: todayStart, $lte: todayEnd },
       }),
 
       Trip.countDocuments({
         siteId: { $in: siteIds },
-        status: { $in: ["completed", "finished", "done", "closed"] },
+        status: { $in: COMPLETED_STATUSES },
       }),
     ]);
 
-    // 3️⃣ Site-wise details (max 4)
+    /* =========================
+       3️⃣ SITE-WISE DETAILS (MAX 4)
+    ========================= */
     const sitesWithDetails = await Promise.all(
       assignedSites.slice(0, 4).map(async (site) => {
         const [barriers, siteActiveTrips] = await Promise.all([
@@ -211,7 +240,7 @@ export const getDashboardStats = async (req, res) => {
 
           Trip.countDocuments({
             siteId: site._id,
-            status: { $in: ["active", "in-progress", "ongoing", "started"] },
+            status: { $in: ACTIVE_STATUSES },
           }),
         ]);
 
@@ -225,7 +254,9 @@ export const getDashboardStats = async (req, res) => {
       })
     );
 
-    // 4️⃣ Final response
+    /* =========================
+       4️⃣ RESPONSE
+    ========================= */
     res.json({
       totalSites,
       totalTrips,
@@ -245,6 +276,7 @@ export const getDashboardStats = async (req, res) => {
     });
   }
 };
+
 
 // Alternative version with aggregation pipeline for better performance
 // export const getDashboardStatsOptimized = async (req, res) => {
@@ -599,6 +631,31 @@ export const toggleSupervisorStatus = async (req, res) => {
       message: "Error toggling supervisor status",
       error: err.message,
     });
+  }
+};
+
+export const deleteSupervisor = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // 1️⃣ Remove supervisor from sites
+    await Site.updateMany(
+      { supervisors: id },
+      { $pull: { supervisors: id } }
+    );
+
+    // 2️⃣ Remove supervisor from trips
+    await Trip.updateMany(
+      { createdBy: id },
+      { $set: { createdBy: null } }
+    );
+
+    // 3️⃣ Delete supervisor
+    await Supervisor.findByIdAndDelete(id);
+
+    res.json({ message: "Supervisor deleted successfully" });
+  } catch (err) {
+    next(err);
   }
 };
 // Live Vehicles Monitoring
