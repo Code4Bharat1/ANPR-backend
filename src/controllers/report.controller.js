@@ -74,7 +74,6 @@ export const siteWise = async (req, res, next) => {
 export const getReports = async (req, res) => {
   try {
     const { startDate, endDate, status, site } = req.query;
-
     let assignedSiteIds = [];
 
     /* ----------------------------------------
@@ -90,7 +89,7 @@ export const getReports = async (req, res) => {
 
     if (req.user.role === "project_manager") {
       const pm = await ProjectManager.findOne({
-        email: req.user.email, // ✅ single source of truth
+        email: req.user.email,
       }).populate("assignedSites", "_id");
 
       if (pm) {
@@ -103,12 +102,16 @@ export const getReports = async (req, res) => {
     }
 
     /* ----------------------------------------
-       2️⃣ Build Query
+       2️⃣ Build Query (FIXED ✅)
     ---------------------------------------- */
     const query = {
-      clientId: req.user.clientId,
       siteId: { $in: assignedSiteIds },
     };
+
+    // ✅ ONLY client needs clientId filter
+    if (req.user.role === "client") {
+      query.clientId = req.user.clientId;
+    }
 
     if (startDate && endDate) {
       query.entryAt = {
@@ -138,19 +141,16 @@ export const getReports = async (req, res) => {
     }
 
     /* ----------------------------------------
-       3️⃣ Fetch Trips (🔥 important populates)
+       3️⃣ Fetch Trips
     ---------------------------------------- */
     const trips = await Trip.find(query)
       .populate("vehicleId")
       .populate("vendorId", "name")
       .populate("siteId", "name location siteId")
-      .populate("createdBy", "name")               // ✅ Supervisor
-      .populate("projectManagerId", "name")  // ✅ PM
+      .populate("createdBy", "name")
+      .populate("projectManagerId", "name")
       .sort({ entryAt: -1 });
 
-    /* ----------------------------------------
-       4️⃣ Normalize Status (same as PM report)
-    ---------------------------------------- */
     const mapStatus = (status = "") => {
       const s = status.toLowerCase();
       if (s === "inside" || s === "active") return "active";
@@ -159,55 +159,36 @@ export const getReports = async (req, res) => {
       return "unknown";
     };
 
-    // console.log("Trips : ", trips);
-
-    /* ----------------------------------------
-       5️⃣ Format Response (PM-style)
-    ---------------------------------------- */
     const formattedTrips = trips.map(trip => ({
       _id: trip._id,
       tripId: trip.tripId || "N/A",
-
       vehicleId: trip.vehicleId || null,
-
       vendorId: {
         _id: trip.vendorId?._id,
         name: trip.vendorId?.name || "N/A",
       },
-
       siteId: {
         _id: trip.siteId?._id,
         name: trip.siteId?.name || "N/A",
         location: trip.siteId?.location,
       },
-
       entryAt: trip.entryAt,
       exitAt: trip.exitAt,
-
       purpose: trip.purpose || "N/A",
       countofmaterials: trip.countofmaterials || "N/A",
-
       status: mapStatus(trip.status),
       loadStatus: trip.loadStatus,
-
       entryGate: trip.entryGate,
       exitGate: trip.exitGate,
-
       notes: trip.notes,
-
-      // ✅ Supervisor
       createdBy: {
         _id: trip.createdBy?._id,
         name: trip.createdBy?.name || "N/A",
       },
-
-      // ✅ Project Manager
       projectManager: {
         _id: trip.projectManagerId?._id,
         name: trip.projectManagerId?.name || "N/A",
       },
-
-
       entryMedia: trip.entryMedia || null,
       exitMedia: trip.exitMedia || null,
     }));
@@ -221,6 +202,7 @@ export const getReports = async (req, res) => {
     });
   }
 };
+
 
 /*====================================================
    EXPORT REPORTS TO EXCEL - FIXED VERSION

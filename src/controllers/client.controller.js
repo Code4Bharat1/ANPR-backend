@@ -136,20 +136,43 @@ export const getClientDashboard = async (req, res, next) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // ✅ Fetch everything first
+    /* =========================
+       FETCH SITES FIRST
+    ========================= */
+    const sites = await Site.find({ clientId })
+      .select("_id name isActive")
+      .lean();
+
+    const siteIds = sites.map(s => s._id);
+
+    /* =========================
+       FETCH COUNTS
+    ========================= */
     const [
-      sites,
-      projectManagers,
-      supervisors,
+      activeProjectManagers,
+      activeSupervisors,
+      totalProjectManagers,
+      totalSupervisors,
       todayEntries,
       todayExits,
       clientData,
       devices
     ] = await Promise.all([
-      Site.find({ clientId }).select("name isActive").lean(),
 
+      // PM → client based (correct)
       ProjectManager.countDocuments({ clientId, isActive: true }),
-      Supervisor.countDocuments({ clientId, isActive: true }),
+
+      // ✅ Supervisor → site based (FIX)
+      Supervisor.countDocuments({
+        siteId: { $in: siteIds },
+        isActive: true
+      }),
+
+      ProjectManager.countDocuments({ clientId }),
+
+      Supervisor.countDocuments({
+        siteId: { $in: siteIds }
+      }),
 
       Trip.countDocuments({
         clientId,
@@ -167,16 +190,30 @@ export const getClientDashboard = async (req, res, next) => {
     ]);
 
     /* =========================
-       SITES CALCULATION ✅
+       SITES CALCULATION
     ========================= */
     const totalSites = sites.length;
-    const activeSites = sites.filter(s => s.isActive === true).length;
-    const inactiveSites = sites.filter(s => s.isActive === false).length;
+    const activeSites = sites.filter(s => s.isActive).length;
+    const inactiveSites = totalSites - activeSites;
 
     /* =========================
        PLAN INFO
     ========================= */
     const packageLimits = PLANS[clientData.packageType] || PLANS.LITE;
+
+    const pmUsage = {
+      used: totalProjectManagers,
+      limit: packageLimits.limits.pm,
+      remaining: Math.max(packageLimits.limits.pm - totalProjectManagers, 0),
+      isExceeded: totalProjectManagers > packageLimits.limits.pm
+    };
+
+    const supervisorUsage = {
+      used: totalSupervisors,
+      limit: packageLimits.limits.supervisor,
+      remaining: Math.max(packageLimits.limits.supervisor - totalSupervisors, 0),
+      isExceeded: totalSupervisors > packageLimits.limits.supervisor
+    };
 
     /* =========================
        DEVICE USAGE
@@ -188,9 +225,9 @@ export const getClientDashboard = async (req, res, next) => {
     };
 
     const totalDevices = devices.length;
-    const activeDevices = devices.filter(d => d.isOnline === true).length;
-    const offlineDevices = devices.filter(d => d.isOnline === false).length;
-    const disabledDevices = devices.filter(d => d.isEnabled === false).length;
+    const activeDevices = devices.filter(d => d.isOnline).length;
+    const offlineDevices = devices.filter(d => !d.isOnline).length;
+    const disabledDevices = devices.filter(d => !d.isEnabled).length;
 
     /* =========================
        RECENT ACTIVITY
@@ -202,50 +239,52 @@ export const getClientDashboard = async (req, res, next) => {
       .select("plateText entryAt exitAt status siteId");
 
     /* =========================
-       RESPONSE ✅
+       RESPONSE
     ========================= */
     res.json({
       plan: {
         packageType: clientData.packageType,
         packageStart: clientData.packageStart,
         packageEnd: clientData.packageEnd,
-        limits: {
-          pm: packageLimits.limits.pm,
-          supervisor: packageLimits.limits.supervisor,
-          devices: packageLimits.limits.devices
-        }
+        limits: packageLimits.limits
+      },
+
+      planUsage: {
+        projectManagers: pmUsage,
+        supervisors: supervisorUsage
       },
 
       usage: {
-        pm: projectManagers,
-        supervisor: supervisors,
+        pm: activeProjectManagers,
+        supervisor: activeSupervisors,
         devices: deviceUsage
       },
 
-      // ✅ SITES
       sites,
       totalSites,
       activeSites,
       inactiveSites,
 
-      // ✅ USERS
-      totalProjectManagers: projectManagers,
-      totalSupervisors: supervisors,
-      totalUsers: projectManagers + supervisors,
+      totalProjectManagers,
+      activeProjectManagers,
+      inactiveProjectManagers: totalProjectManagers - activeProjectManagers,
 
-      // ✅ DEVICES
+      totalSupervisors,
+      activeSupervisors,
+      inactiveSupervisors: totalSupervisors - activeSupervisors,
+
+      totalUsers: totalProjectManagers + totalSupervisors,
+
       totalDevices,
       activeDevices,
       offlineDevices,
       disabledDevices,
       inactiveDevices: offlineDevices,
 
-      // ✅ TODAY
       todayEntries,
       todayExits,
       todayTotal: todayEntries + todayExits,
 
-      // ✅ ACTIVITY
       recentActivity: recentActivity.map(trip => ({
         title: `Vehicle ${trip.plateText}`,
         description: `${trip.status} at ${trip.siteId?.name || "Unknown Site"}`,
@@ -259,6 +298,7 @@ export const getClientDashboard = async (req, res, next) => {
     next(err);
   }
 };
+
 
 export const createProjectManager = async (req, res, next) => {
   try {
@@ -389,6 +429,54 @@ export const updateProjectManager = async (req, res, next) => {
   }
 };
 
+export const deleteProjectManager = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // 1️⃣ Remove PM from all sites
+    await Site.updateMany(
+      { projectManagers: id },
+      { $pull: { projectManagers: id } }
+    );
+
+    // 2️⃣ Remove PM from trips (optional)
+    await Trip.updateMany(
+      { projectManagerId: id },
+      { $set: { projectManagerId: null } }
+    );
+
+    // 3️⃣ Delete PM
+    await ProjectManager.findByIdAndDelete(id);
+
+    res.json({ message: "Project Manager deleted successfully" });
+  } catch (err) {
+    next(err);
+  }
+};
+export const deleteSupervisor = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // 1️⃣ Remove supervisor from sites
+    await Site.updateMany(
+      { supervisors: id },
+      { $pull: { supervisors: id } }
+    );
+
+    // 2️⃣ Remove supervisor from trips
+    await Trip.updateMany(
+      { createdBy: id },
+      { $set: { createdBy: null } }
+    );
+
+    // 3️⃣ Delete supervisor
+    await Supervisor.findByIdAndDelete(id);
+
+    res.json({ message: "Supervisor deleted successfully" });
+  } catch (err) {
+    next(err);
+  }
+};
 
 
 export const createusers = async (req, res, next) => {

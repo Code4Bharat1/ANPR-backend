@@ -365,13 +365,15 @@ export const getDashboardStats = async (req, res) => {
 // };
 
 
-
 export const createSupervisor = async (req, res) => {
   try {
     const { name, email, mobile, address, siteId, password } = req.body;
 
+    /* =========================
+       1️⃣ VERIFY PM
+    ========================= */
     const pm = await ProjectManager.findById(req.user.id)
-      .select("assignedSites plan")
+      .select("assignedSites clientId")
       .lean();
 
     if (!pm) {
@@ -384,16 +386,31 @@ export const createSupervisor = async (req, res) => {
       });
     }
 
-    const planKey = pm.plan || "LITE";
+    /* =========================
+       2️⃣ FETCH CLIENT & PLAN
+    ========================= */
+    const client = await Client.findById(pm.clientId)
+      .select("packageType")
+      .lean();
+
+    if (!client) {
+      return res.status(404).json({ message: "Client not found" });
+    }
+
+    const planKey = client.packageType || "LITE";
     const planConfig = PLANS[planKey];
+
     if (!planConfig) {
-      return res.status(400).json({ message: "Invalid plan assigned to PM" });
+      return res.status(400).json({ message: "Invalid client plan" });
     }
 
     const supervisorLimit = planConfig.limits.supervisor;
 
+    /* =========================
+       3️⃣ COUNT SUPERVISORS (CLIENT LEVEL)
+    ========================= */
     const existingSupervisors = await Supervisor.countDocuments({
-      projectManagerId: req.user.id,
+      siteId: { $in: pm.assignedSites }
     });
 
     if (existingSupervisors >= supervisorLimit) {
@@ -402,7 +419,9 @@ export const createSupervisor = async (req, res) => {
       });
     }
 
-    // ✅ CREATE SUPERVISOR
+    /* =========================
+       4️⃣ CREATE SUPERVISOR
+    ========================= */
     const supervisor = await Supervisor.create({
       name,
       email: email.toLowerCase().trim(),
@@ -411,15 +430,17 @@ export const createSupervisor = async (req, res) => {
       siteId,
       password,
       projectManagerId: req.user.id,
+      clientId: pm.clientId, // 🔥 VERY IMPORTANT (future dashboard fix)
     });
 
-    // 🔥 UPDATE SITE (MISSING PART)
+    /* =========================
+       5️⃣ UPDATE SITE & PM
+    ========================= */
     await Site.findByIdAndUpdate(
       siteId,
       { $addToSet: { supervisors: supervisor._id } }
     );
 
-    // 🔥 UPDATE PM (OPTIONAL BUT RECOMMENDED)
     await ProjectManager.findByIdAndUpdate(
       req.user.id,
       { $addToSet: { supervisors: supervisor._id } }
@@ -440,6 +461,7 @@ export const createSupervisor = async (req, res) => {
     });
   }
 };
+
 
 // Add this to your backend supervisor routes
 export const updateSupervisor = async (req, res) => {
