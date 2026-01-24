@@ -8,6 +8,7 @@ import Site from "../models/Site.model.js";
 import Vendor from "../models/Vendor.model.js";
 import DeviceModel from '../models/Device.model.js';
 import Supervisor from '../models/supervisor.model.js';
+import ClientModel from "../models/Client.model.js";
 import Vehicle from '../models/Vehicle.model.js';
 import mongoose from 'mongoose';
 
@@ -389,7 +390,7 @@ export const createSupervisor = async (req, res) => {
     /* =========================
        2️⃣ FETCH CLIENT & PLAN
     ========================= */
-    const client = await Client.findById(pm.clientId)
+    const client = await ClientModel.findById(pm.clientId)
       .select("packageType")
       .lean();
 
