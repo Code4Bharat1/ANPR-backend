@@ -161,9 +161,8 @@ export const getTripHistory = async (req, res) => {
         trip.vehicleId?.plateNumber ||
         trip.plateText ||
         "N/A";
-      
-      const vehicleType = trip.vehicleId?.vehicleType || "N/A";
 
+      const vehicleType = trip.vehicleId?.vehicleType || "N/A";
 
       // Get vendor name from multiple possible sources
       const vendorName =
@@ -901,7 +900,7 @@ export const createManualTrip = async (req, res) => {
         driverPhone,
         vendorId,
         siteId,
-         countofmaterials,
+        countofmaterials,
         clientId,
         isInside: true,
         lastEntryAt: new Date(),
@@ -919,16 +918,61 @@ export const createManualTrip = async (req, res) => {
       await vehicle.save();
     }
 
+    // Handle both old array format and new object format
+    let photosObject = {
+      frontView: null,
+      backView: null,
+      loadView: null,
+      driverView: null,
+    };
+
+    if (media?.photos) {
+      if (Array.isArray(media.photos)) {
+        // 🔥 OLD FORMAT: Convert array to object
+        console.warn(
+          "⚠️ Received photos as array (old format), converting to object",
+        );
+        const photoKeys = ["frontView", "backView", "loadView", "driverView"];
+        media.photos.forEach((photoUrl, index) => {
+          if (photoUrl && photoKeys[index]) {
+            photosObject[photoKeys[index]] = photoUrl;
+          }
+        });
+      } else if (typeof media.photos === "object") {
+        // 🔥 NEW FORMAT: Already an object with keys
+        // console.log('✅ Received photos as object (new format)');
+        photosObject = {
+          frontView: media.photos.frontView || null,
+          backView: media.photos.backView || null,
+          loadView: media.photos.loadView || null,
+          driverView: media.photos.driverView || null,
+        };
+      }
+    }
+
+    // 🔥 Validate that photo keys are file paths, not MongoDB IDs
+    Object.entries(photosObject).forEach(([key, value]) => {
+      if (value) {
+        if (value.length === 24 && !value.includes("/")) {
+          console.error(`❌ INVALID ${key}: Looks like MongoDB ID: ${value}`);
+          console.error(
+            "   Expected format: vehicles/entry/photos/123-front.jpg",
+          );
+          photosObject[key] = null; // Reset invalid values
+        } else if (!value.includes("/")) {
+          console.error(`❌ INVALID ${key}: Missing folder path: ${value}`);
+          photosObject[key] = null;
+        } else {
+          // console.log(`✅ ${key}: ${value}`);
+        }
+      }
+    });
+
     const entryMedia = {
-      anprImage: isValidMediaKey(media?.anprImage),
-      photos: {
-        frontView: isValidMediaKey(media?.photos?.frontView),
-        backView: isValidMediaKey(media?.photos?.backView),
-        loadView: isValidMediaKey(media?.photos?.loadView),
-        driverView: isValidMediaKey(media?.photos?.driverView),
-      },
-      video: isValidMediaKey(media?.video),
-      challanImage: isValidMediaKey(media?.challanImage),
+      anprImage: media?.anprImage || null,
+      photos: photosObject, // 🔥 Object with keys, not array
+      video: media?.video || null,
+      challanImage: media?.challanImage || null,
     };
 
     const site = await Site.findById(siteId);
@@ -938,7 +982,7 @@ export const createManualTrip = async (req, res) => {
       siteId,
       vehicleId: vehicle._id,
       vendorId,
-    countofmaterials: vehicle.countofmaterials,
+      countofmaterials: vehicle.countofmaterials,
       supervisorId,
       projectManagerId: site?.projectManagerId || clientId,
       plateText: plate,
@@ -952,29 +996,27 @@ export const createManualTrip = async (req, res) => {
       notes,
       createdBy: supervisorId,
     });
-try {
-  const barrierDevice = site?.devices?.find(
-    d => d.type === "BARRIER" && d.isActive === true
-  );
+    try {
+      const barrierDevice = site?.devices?.find(
+        (d) => d.type === "BARRIER" && d.isActive === true,
+      );
 
-  if (barrierDevice?.ipAddress) {
-    await axios.post(
-      `http://${barrierDevice.ipAddress}/analytics/barrier`,
-      {},
-      { timeout: 2000 }
-    );
-  }
-} catch (e) {
-  console.error("⚠️ Barrier trigger failed:", e.message);
-}
+      if (barrierDevice?.ipAddress) {
+        await axios.post(
+          `http://${barrierDevice.ipAddress}/analytics/barrier`,
+          {},
+          { timeout: 2000 },
+        );
+      }
+    } catch (e) {
+      console.error("⚠️ Barrier trigger failed:", e.message);
+    }
     res.status(201).json({
       success: true,
       tripId: trip.tripId,
       entryMedia,
     });
     // 🔓 Barrier trigger (non-blocking, no logic change)
-
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: "Failed" });
@@ -1171,21 +1213,20 @@ export const createManualTripMobile = async (req, res) => {
       isPersonalVehicle: isPersonalVehicle,
     });
     try {
-  const barrierDevice = site?.devices?.find(
-    d => d.type === "BARRIER" && d.isActive === true
-  );
+      const barrierDevice = site?.devices?.find(
+        (d) => d.type === "BARRIER" && d.isActive === true,
+      );
 
-  if (barrierDevice?.ipAddress) {
-    await axios.post(
-      `http://${barrierDevice.ipAddress}/analytics/barrier`,
-      {},
-      { timeout: 2000 }
-    );
-  }
-} catch (e) {
-  console.error("⚠️ Mobile barrier trigger failed:", e.message);
-}
-
+      if (barrierDevice?.ipAddress) {
+        await axios.post(
+          `http://${barrierDevice.ipAddress}/analytics/barrier`,
+          {},
+          { timeout: 2000 },
+        );
+      }
+    } catch (e) {
+      console.error("⚠️ Mobile barrier trigger failed:", e.message);
+    }
 
     return res.status(201).json({
       success: true,
