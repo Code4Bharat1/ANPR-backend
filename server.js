@@ -89,6 +89,7 @@ const allowedOrigins = [
   "https://anpr.nexcorealliance.com",
   "https://www.anpr.nexcorealliance.com",
   "https://www.webhooks.nexcorealliance.com",
+  "*",
 ];
 
 app.use(
