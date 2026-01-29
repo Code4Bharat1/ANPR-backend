@@ -290,6 +290,7 @@ app.use(
       "x-alpha",
       "x-salt",
       "x-cue",
+      "x-camera-ip",
     ],
   }),
 );
