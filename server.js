@@ -228,6 +228,7 @@ app.post("/api/v1/auth/login", async (req, res) => {
     res.status(response.status).json(data);
   } catch (err) {
     console.error("Auth proxy error:", err);
+    console.log(err);
     res.status(500).json({ message: "Auth proxy failed" });
   }
 });
@@ -264,6 +265,7 @@ app.post("/api/v1/barrier/actuate", async (req, res) => {
     res.status(response.status).json(data);
   } catch (err) {
     console.error("Barrier proxy error:", err);
+    console.log(err);
     res.status(500).json({ message: "Barrier proxy failed" });
   }
 });
