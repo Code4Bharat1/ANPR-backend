@@ -217,6 +217,8 @@ app.post("/api/v1/auth/login", async (req, res) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0",
+        Accept: "application/json",
         "X-Alpha": "21",
         "X-Salt": "683239",
         "X-Cue": "34db55e07f7b39df480284397f7f42ec",
