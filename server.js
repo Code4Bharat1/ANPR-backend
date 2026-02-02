@@ -210,9 +210,9 @@ function resolveCameraIP(req) {
 }
 
 app.post("/api/v1/auth/login", async (req, res) => {
+  const cameraIP = resolveCameraIP(req);
+  console.log(cameraIP);
   try {
-    const cameraIP = resolveCameraIP(req);
-
     const response = await fetch(`http://${cameraIP}/api/v1/auth/login`, {
       method: "POST",
       headers: {
