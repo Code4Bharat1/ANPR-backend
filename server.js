@@ -89,6 +89,8 @@ const allowedOrigins = [
   "https://anpr.nexcorealliance.com",
   "https://www.anpr.nexcorealliance.com",
   "https://www.webhooks.nexcorealliance.com",
+  "http://192.168.0.100/api/v1/auth/auth/login/",
+  "http://192.168.0.100/api/v1/barrier/actuate",
   "*",
 ];
 
