@@ -4,7 +4,7 @@ import cors from "cors";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import dotenv from "dotenv";
-
+import http from "http";
 import connectDB from "./src/config/db.js";
 
 // Routes
@@ -21,7 +21,7 @@ import projectRoutes from "./src/routes/projectManager.routes.js";
 import supervisorRoutes from "./src/routes/supervisor.routes.js";
 import uploadRoutes from "./src/routes/upload.routes.js";
 import plateRoutes from "./src/routes/plate.routes.js";
-
+import barrierRoutes from "./src/routes/barrier.routes.js";
 // Models
 import Trip from "./src/models/Trip.model.js";
 import AuditLog from "./src/models/AuditLog.model.js";
@@ -29,12 +29,15 @@ import RefreshToken from "./src/models/RefreshToken.model.js";
 
 // Middleware
 import { errorMiddleware } from "./src/middlewares/error.middleware.js";
+import { initAgentWebSocket } from "./src/agent/agent.ws.js";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const server = http.createServer(app);
+initAgentWebSocket(server);
 /* =======================
    TRUST PROXY
 ======================= */
@@ -96,17 +99,34 @@ const allowedOrigins = [
 
 app.use(
   cors({
-    origin: function (origin, callback) {
-      if (!origin) return callback(null, true);
+    origin: function (
+      origin,
+      callback,
+    ) {
+      if (!origin)
+        return callback(null, true);
 
-      if (allowedOrigins.includes(origin)) {
+      if (
+        allowedOrigins.includes(origin)
+      ) {
         return callback(null, origin);
       }
 
-      return callback(new Error("Not allowed by CORS"));
+      return callback(
+        new Error(
+          "Not allowed by CORS",
+        ),
+      );
     },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+    ],
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -130,10 +150,15 @@ app.use((req, res, next) => {
   // }
 
   if (
-    process.env.NODE_ENV === "production" &&
-    req.headers["x-forwarded-proto"] !== "https"
+    process.env.NODE_ENV ===
+      "production" &&
+    req.headers["x-forwarded-proto"] !==
+      "https"
   ) {
-    return res.redirect(301, `https://${req.headers.host}${req.originalUrl}`);
+    return res.redirect(
+      301,
+      `https://${req.headers.host}${req.originalUrl}`,
+    );
   }
   next();
 });
@@ -148,12 +173,18 @@ app.use(
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
         imgSrc: ["'self'", "data:"],
-        connectSrc: ["'self'", "https://api-anpr.nexcorealliance.com"],
+        connectSrc: [
+          "'self'",
+          "https://api-anpr.nexcorealliance.com",
+        ],
         objectSrc: ["'none'"],
       },
     },
     frameguard: { action: "deny" },
-    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+    referrerPolicy: {
+      policy:
+        "strict-origin-when-cross-origin",
+    },
     hsts: {
       maxAge: 31536000,
       includeSubDomains: true,
@@ -165,8 +196,14 @@ app.use(
 /* =======================
    BODY PARSERS
 ======================= */
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(
+  express.json({ limit: "10mb" }),
+);
+app.use(
+  express.urlencoded({
+    extended: true,
+  }),
+);
 app.use(cookieParser());
 
 /* =======================
@@ -185,15 +222,24 @@ app.use(
    HEALTH CHECK
 ======================= */
 app.get("/", (req, res) => {
-  res.json({ status: "OK", name: "ANPR Backend" });
+  res.json({
+    status: "OK",
+    name: "ANPR Backend",
+  });
 });
 
 /* =======================
    ROUTES
 ======================= */
 app.use("/api/auth", authRoutes);
-app.use("/api/superadmin", superAdminRoutes);
-app.use("/api/client-admin", clientRoutes);
+app.use(
+  "/api/superadmin",
+  superAdminRoutes,
+);
+app.use(
+  "/api/client-admin",
+  clientRoutes,
+);
 app.use("/api/sites", siteRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/vendors", vendorRoutes);
@@ -201,78 +247,129 @@ app.use("/api/devices", deviceRoutes);
 app.use("/api/trips", tripRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/project", projectRoutes);
-app.use("/api/supervisor", supervisorRoutes);
+app.use(
+  "/api/supervisor",
+  supervisorRoutes,
+);
 app.use("/api/uploads", uploadRoutes);
 app.use("/api/plate", plateRoutes);
+app.use("/api/barrier", barrierRoutes);
 
-const DEFAULT_CAMERA_IP = "192.168.0.100";
+const DEFAULT_CAMERA_IP =
+  "192.168.0.100";
 
 function resolveCameraIP(req) {
-  return req.headers["x-camera-ip"] || DEFAULT_CAMERA_IP;
+  return (
+    req.headers["x-camera-ip"] ||
+    DEFAULT_CAMERA_IP
+  );
 }
 
-app.post("/api/v1/auth/login", async (req, res) => {
-  const cameraIP = resolveCameraIP(req);
-  console.log(cameraIP);
-  try {
-    const response = await fetch(`http://${cameraIP}/api/v1/auth/login`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0",
-        Accept: "application/json",
-        "X-Alpha": "21",
-        "X-Salt": "683239",
-        "X-Cue": "34db55e07f7b39df480284397f7f42ec",
-      },
-      body: JSON.stringify(req.body),
-    });
-
-    const data = await response.json();
-    res.status(response.status).json(data);
-  } catch (err) {
-    console.error("Auth proxy error:", err);
-    console.log(err);
-    res.status(500).json({ message: "Auth proxy failed" });
-  }
-});
-
-app.post("/api/v1/barrier/actuate", async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader) {
-      return res.status(401).json({ message: "Missing Authorization token" });
-    }
-
-    const cameraIP = resolveCameraIP(req);
-
-    // 🔥 HARD-CODED BODY (unchanged)
-    const body = {
-      location: "entry",
-      action: "up",
-    };
-
-    const response = await fetch(
-      `http://${cameraIP}/api/v1/analytics/barrier`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: authHeader,
+app.post(
+  "/api/v1/auth/login",
+  async (req, res) => {
+    const cameraIP =
+      resolveCameraIP(req);
+    console.log(cameraIP);
+    try {
+      const response = await fetch(
+        `http://${cameraIP}/api/v1/auth/login`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+            "User-Agent": "Mozilla/5.0",
+            Accept: "application/json",
+            "X-Alpha": "21",
+            "X-Salt": "683239",
+            "X-Cue":
+              "34db55e07f7b39df480284397f7f42ec",
+          },
+          body: JSON.stringify(
+            req.body,
+          ),
         },
-        body: JSON.stringify(body),
-      },
-    );
+      );
 
-    const data = await response.json();
-    res.status(response.status).json(data);
-  } catch (err) {
-    console.error("Barrier proxy error:", err);
-    console.log(err);
-    res.status(500).json({ message: "Barrier proxy failed" });
-  }
-});
+      const data =
+        await response.json();
+      res
+        .status(response.status)
+        .json(data);
+    } catch (err) {
+      console.error(
+        "Auth proxy error:",
+        err,
+      );
+      console.log(err);
+      res
+        .status(500)
+        .json({
+          message: "Auth proxy failed",
+        });
+    }
+  },
+);
+
+app.post(
+  "/api/v1/barrier/actuate",
+  async (req, res) => {
+    try {
+      const authHeader =
+        req.headers.authorization;
+
+      if (!authHeader) {
+        return res
+          .status(401)
+          .json({
+            message:
+              "Missing Authorization token",
+          });
+      }
+
+      const cameraIP =
+        resolveCameraIP(req);
+
+      // 🔥 HARD-CODED BODY (unchanged)
+      const body = {
+        location: "entry",
+        action: "up",
+      };
+
+      const response = await fetch(
+        `http://${cameraIP}/api/v1/analytics/barrier`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Authorization: authHeader,
+          },
+          body: JSON.stringify(body),
+        },
+      );
+
+      const data =
+        await response.json();
+      res
+        .status(response.status)
+        .json(data);
+    } catch (err) {
+      console.error(
+        "Barrier proxy error:",
+        err,
+      );
+      console.log(err);
+      res
+        .status(500)
+        .json({
+          message:
+            "Barrier proxy failed",
+        });
+    }
+  },
+);
 
 /* =======================
    ERROR HANDLER
@@ -284,28 +381,46 @@ app.use(errorMiddleware);
 ======================= */
 await connectDB();
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+server.listen(PORT, () => {
+  console.log(
+    `🚀 Server + WebSocket running on port ${PORT}`,
+  );
 });
+
 
 /* =======================
    DATA RETENTION CLEANUP
 ======================= */
-const retentionDays = Number(process.env.DATA_RETENTION_DAYS || 90);
+const retentionDays = Number(
+  process.env.DATA_RETENTION_DAYS || 90,
+);
 const ms = 24 * 60 * 60 * 1000;
 
 setInterval(
   async () => {
     try {
-      const cutoff = new Date(Date.now() - retentionDays * ms);
+      const cutoff = new Date(
+        Date.now() - retentionDays * ms,
+      );
 
-      await Trip.deleteMany({ createdAt: { $lt: cutoff } });
-      await AuditLog.deleteMany({ createdAt: { $lt: cutoff } });
-      await RefreshToken.deleteMany({ expiresAt: { $lt: new Date() } });
+      await Trip.deleteMany({
+        createdAt: { $lt: cutoff },
+      });
+      await AuditLog.deleteMany({
+        createdAt: { $lt: cutoff },
+      });
+      await RefreshToken.deleteMany({
+        expiresAt: { $lt: new Date() },
+      });
 
-      console.log("🧹 Retention cleanup done");
+      console.log(
+        "🧹 Retention cleanup done",
+      );
     } catch (e) {
-      console.error("❌ Retention cleanup error:", e.message);
+      console.error(
+        "❌ Retention cleanup error:",
+        e.message,
+      );
     }
   },
   6 * 60 * 60 * 1000,
