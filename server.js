@@ -89,6 +89,9 @@ const allowedOrigins = [
   "https://anpr.nexcorealliance.com",
   "https://www.anpr.nexcorealliance.com",
   "https://www.webhooks.nexcorealliance.com",
+  "http://192.168.0.100/api/v1/auth/auth/login/",
+  "http://192.168.0.100/api/v1/barrier/actuate",
+  "*",
 ];
 
 app.use(
@@ -209,13 +212,15 @@ function resolveCameraIP(req) {
 }
 
 app.post("/api/v1/auth/login", async (req, res) => {
+  const cameraIP = resolveCameraIP(req);
+  console.log(cameraIP);
   try {
-    const cameraIP = resolveCameraIP(req);
-
     const response = await fetch(`http://${cameraIP}/api/v1/auth/login`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0",
+        Accept: "application/json",
         "X-Alpha": "21",
         "X-Salt": "683239",
         "X-Cue": "34db55e07f7b39df480284397f7f42ec",
@@ -227,6 +232,7 @@ app.post("/api/v1/auth/login", async (req, res) => {
     res.status(response.status).json(data);
   } catch (err) {
     console.error("Auth proxy error:", err);
+    console.log(err);
     res.status(500).json({ message: "Auth proxy failed" });
   }
 });
@@ -263,6 +269,7 @@ app.post("/api/v1/barrier/actuate", async (req, res) => {
     res.status(response.status).json(data);
   } catch (err) {
     console.error("Barrier proxy error:", err);
+    console.log(err);
     res.status(500).json({ message: "Barrier proxy failed" });
   }
 });
