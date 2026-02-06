@@ -241,14 +241,12 @@ export const registerSuperAdmin = async (req, res, next) => {
   try {
     const { fullName, email, password } = req.body || {};
 
-    // 1️⃣ Required fields check
     if (!fullName || !email || !password) {
       return res.status(400).json({
         message: "Full name, email and password are required",
       });
     }
 
-    // 2️⃣ Email format validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({
@@ -256,14 +254,12 @@ export const registerSuperAdmin = async (req, res, next) => {
       });
     }
 
-    // 3️⃣ Password strength
     if (password.length < 8) {
       return res.status(400).json({
         message: "Password must be at least 8 characters long",
       });
     }
 
-    // 4️⃣ Allow only ONE SuperAdmin
     const existing = await SuperAdmin.countDocuments();
     if (existing > 2) {
       return res.status(403).json({
@@ -271,7 +267,6 @@ export const registerSuperAdmin = async (req, res, next) => {
       });
     }
 
-    // 5️⃣ Prevent duplicate email
     const emailExists = await SuperAdmin.findOne({ email });
     if (emailExists) {
       return res.status(409).json({
@@ -279,14 +274,14 @@ export const registerSuperAdmin = async (req, res, next) => {
       });
     }
 
-    // 6️⃣ Hash password
-    const hashedPassword = await hashPassword(password);
+    // ❌ REMOVE THIS
+    // const hashedPassword = await hashPassword(password);
 
-    // 7️⃣ Create SuperAdmin
+    // ✅ Just pass plain password
     const superAdmin = await SuperAdmin.create({
-      fullName,                  // ✅ FIXED
+      fullName,
       email,
-      password: hashedPassword,
+      password, // ✅ schema will hash it
       role: "superadmin",
     });
 
