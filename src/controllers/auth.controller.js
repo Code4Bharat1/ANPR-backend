@@ -265,7 +265,7 @@ export const registerSuperAdmin = async (req, res, next) => {
 
     // 4️⃣ Allow only ONE SuperAdmin
     const existing = await SuperAdmin.countDocuments();
-    if (existing > 0) {
+    if (existing > 2) {
       return res.status(403).json({
         message: "SuperAdmin already exists",
       });
