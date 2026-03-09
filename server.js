@@ -89,6 +89,7 @@ app.set("trust proxy", 1);
 ======================= */
 const allowedOrigins = [
   "http://localhost:3000",
+  "http://localhost:3001",
   "https://anpr.nexcorealliance.com",
   "https://www.anpr.nexcorealliance.com",
   "https://www.webhooks.nexcorealliance.com",
