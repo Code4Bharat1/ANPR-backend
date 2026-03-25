@@ -22,14 +22,18 @@ import supervisorRoutes from "./src/routes/supervisor.routes.js";
 import uploadRoutes from "./src/routes/upload.routes.js";
 import plateRoutes from "./src/routes/plate.routes.js";
 import barrierRoutes from "./src/routes/barrier.routes.js";
+import creditRoutes from "./src/routes/credit.routes.js";
 // Models
 import Trip from "./src/models/Trip.model.js";
 import AuditLog from "./src/models/AuditLog.model.js";
 import RefreshToken from "./src/models/RefreshToken.model.js";
+import "./src/models/BarrierEvent.model.js";
 
 // Middleware
 import { errorMiddleware } from "./src/middlewares/error.middleware.js";
 import { initAgentWebSocket } from "./src/agent/agent.ws.js";
+import { markOverstayTrips } from "./src/controllers/trip.controller.js";
+import { closeAllConnections } from "./src/config/tenantDB.js";
 
 dotenv.config();
 
@@ -94,7 +98,6 @@ const allowedOrigins = [
   "https://www.anpr.nexcorealliance.com",
   "https://www.webhooks.nexcorealliance.com",
   "http://192.168.0.100/api/v1/auth/auth/login/",
-  "http://192.168.0.100/api/v1/barrier/actuate",
   "*",
 ];
 
@@ -255,6 +258,7 @@ app.use(
 app.use("/api/uploads", uploadRoutes);
 app.use("/api/plate", plateRoutes);
 app.use("/api/barrier", barrierRoutes);
+app.use("/api/credits", creditRoutes);
 
 const DEFAULT_CAMERA_IP =
   "192.168.0.100";
@@ -313,65 +317,6 @@ app.post(
   },
 );
 
-app.post(
-  "/api/v1/barrier/actuate",
-  async (req, res) => {
-    try {
-      const authHeader =
-        req.headers.authorization;
-
-      if (!authHeader) {
-        return res
-          .status(401)
-          .json({
-            message:
-              "Missing Authorization token",
-          });
-      }
-
-      const cameraIP =
-        resolveCameraIP(req);
-
-      // 🔥 HARD-CODED BODY (unchanged)
-      const body = {
-        location: "entry",
-        action: "up",
-      };
-
-      const response = await fetch(
-        `http://${cameraIP}/api/v1/analytics/barrier`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-            Authorization: authHeader,
-          },
-          body: JSON.stringify(body),
-        },
-      );
-
-      const data =
-        await response.json();
-      res
-        .status(response.status)
-        .json(data);
-    } catch (err) {
-      console.error(
-        "Barrier proxy error:",
-        err,
-      );
-      console.log(err);
-      res
-        .status(500)
-        .json({
-          message:
-            "Barrier proxy failed",
-        });
-    }
-  },
-);
-
 /* =======================
    ERROR HANDLER
 ======================= */
@@ -388,6 +333,23 @@ server.listen(PORT, () => {
   );
 });
 
+
+/* =======================
+   OVERSTAY JOB (FR-3.4)
+======================= */
+// Runs every 5 minutes — marks INSIDE trips as OVERSTAY when elapsed > threshold
+setInterval(markOverstayTrips, 5 * 60 * 1000);
+
+/* =======================
+   GRACEFUL SHUTDOWN
+======================= */
+async function shutdown() {
+  console.log("🛑 Shutting down...");
+  await closeAllConnections();
+  process.exit(0);
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT",  shutdown);
 
 /* =======================
    DATA RETENTION CLEANUP

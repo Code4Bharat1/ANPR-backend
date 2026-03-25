@@ -6,229 +6,178 @@ import { Parser } from "json2csv";
 import ExcelJS from "exceljs";
 import mongoose from "mongoose";
 import VendorModel from "../models/Vendor.model.js";
+import { deductCredit } from "../utils/credit.util.js";
+import { triggerBarrierForTrip } from "./barrier.controller.js";
 
 /**
- * @desc   Get trip history with filters
+ * Resolve the Trip model from the tenant-aware connection if available,
+ * otherwise fall back to the default imported model.
+ * This enables dedicated-DB isolation without changing every query.
+ */
+function TripModel(req) {
+  return req?.db ? req.db.model("Trip") : Trip;
+}
+function VehicleModel(req) {
+  return req?.db ? req.db.model("Vehicle") : Vehicle;
+}
+
+/**
+ * @desc   Get trip history with filters + pagination
  * @route  GET /api/trips/history
  * @access Supervisor, PM, Admin, Client
+ *
+ * Query params:
+ *   period        today | last7days | last30days
+ *   startDate     ISO date (used with endDate)
+ *   endDate       ISO date
+ *   status        INSIDE | EXITED | COMPLETED | CANCELLED | OVERSTAY
+ *   vehicleNumber partial plate match
+ *   vendorId      ObjectId
+ *   page          default 1
+ *   limit         default 50, max 200
  */
 export const getTripHistory = async (req, res) => {
   try {
-    const { period, status, vehicleNumber, vendorId, startDate, endDate } =
-      req.query;
-    const siteId = req.user?.siteId || req.query.siteId;
+    const {
+      period,
+      status,
+      vehicleNumber,
+      vendorId,
+      startDate,
+      endDate,
+      page = 1,
+      limit = 50,
+    } = req.query;
+
+    const siteId   = req.user?.siteId   || req.query.siteId;
     const clientId = req.user?.clientId;
 
-    // console.log("🚗 Get trip history request:", {
-    //   siteId,
-    //   period,
-    //   userId: req.user?._id,
-    //   userRole: req.user?.role,
-    //   filters: { status, vehicleNumber, vendorId, startDate, endDate },
-    // });
-
     if (!siteId && !clientId) {
-      return res.status(400).json({
-        success: false,
-        message: "Site ID or Client ID is required.",
-      });
+      return res.status(400).json({ success: false, message: "Site ID or Client ID is required." });
     }
 
-    // Build query
+    // ── Scope ──────────────────────────────────────────────
     const query = {};
+    if (siteId)   query.siteId   = new mongoose.Types.ObjectId(siteId);
+    else          query.clientId = new mongoose.Types.ObjectId(clientId);
 
-    if (siteId) {
-      query.siteId = new mongoose.Types.ObjectId(siteId);
-    } else if (clientId) {
-      query.clientId = new mongoose.Types.ObjectId(clientId);
+    // ── Filters ────────────────────────────────────────────
+    if (status)       query.status   = status;
+    if (vehicleNumber) query.plateText = { $regex: vehicleNumber, $options: "i" };
+    if (vendorId && mongoose.Types.ObjectId.isValid(vendorId)) {
+      query.vendorId = new mongoose.Types.ObjectId(vendorId);
     }
 
-    // Apply filters
-    if (status) query.status = status;
-    if (vehicleNumber)
-      query.$or = [
-        { plateText: { $regex: vehicleNumber, $options: "i" } },
-        { "vehicleId.vehicleNumber": { $regex: vehicleNumber, $options: "i" } },
-      ];
-    if (vendorId) query.vendorId = new mongoose.Types.ObjectId(vendorId);
-
-    // Date range filtering
-    let dateFilter = {};
+    // ── Date range ─────────────────────────────────────────
     if (period === "today") {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      dateFilter.entryAt = { $gte: today };
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      query.entryAt = { $gte: today };
     } else if (period === "last7days") {
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 7);
-      dateFilter.entryAt = { $gte: startDate };
+      const d = new Date(); d.setDate(d.getDate() - 7);
+      query.entryAt = { $gte: d };
     } else if (period === "last30days") {
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 30);
-      dateFilter.entryAt = { $gte: startDate };
+      const d = new Date(); d.setDate(d.getDate() - 30);
+      query.entryAt = { $gte: d };
     } else if (startDate && endDate) {
-      dateFilter.entryAt = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate),
-      };
+      query.entryAt = { $gte: new Date(startDate), $lte: new Date(endDate) };
     } else {
-      // Default to last 7 days
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 7);
-      dateFilter.entryAt = { $gte: startDate };
+      // default: last 7 days
+      const d = new Date(); d.setDate(d.getDate() - 7);
+      query.entryAt = { $gte: d };
     }
 
-    Object.assign(query, dateFilter);
+    // ── Pagination ─────────────────────────────────────────
+    const parsedPage  = Math.max(1, parseInt(page));
+    const parsedLimit = Math.min(200, Math.max(1, parseInt(limit)));
+    const skip        = (parsedPage - 1) * parsedLimit;
 
-    // console.log("🔍 Querying trips with:", query);
+    const [trips, total] = await Promise.all([
+      TripModel(req).find(query)
+        .populate("vendorId",    "name companyName")
+        .populate("vehicleId",   "vehicleNumber plateNumber driverName vehicleType")
+        .populate("siteId",      "name address")
+        .populate("supervisorId","name email")
+        .sort({ entryAt: -1 })
+        .skip(skip)
+        .limit(parsedLimit)
+        .lean(),
+      TripModel(req).countDocuments(query),
+    ]);
 
-    // Query trips with proper population
-    const trips = await Trip.find(query)
-      .populate("vendorId", "name companyName")
-      .populate("vehicleId", "vehicleNumber plateNumber driverName vehicleType")
-      .populate("siteId", "name address")
-      .populate("supervisorId", "name email")
-      .sort({ entryAt: -1 })
-      .lean();
+    // ── Format ─────────────────────────────────────────────
+    const OVERSTAY_MINUTES = 240;
 
-    // console.log('📊 Raw trips from DB:', {
-    //   count: trips.length,
-    //   sampleTrip: trips[0] ? {
-    //     tripId: trips[0].tripId,
-    //     entryAt: trips[0].entryAt,
-    //     exitAt: trips[0].exitAt,
-    //     vehicleId: trips[0].vehicleId,
-    //     vendorId: trips[0].vendorId
-    //   } : null
-    // }
-    // );
-
-    // Helper function to safely format dates
-    const formatDate = (dateValue) => {
-      if (!dateValue) return null;
-
-      try {
-        const date = new Date(dateValue);
-        if (isNaN(date.getTime())) {
-          console.error("Invalid date value:", dateValue);
-          return "Invalid Date";
-        }
-
-        return date.toLocaleString("en-IN", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: true,
-          timeZone: "Asia/Kolkata",
-        });
-      } catch (error) {
-        console.error("Error formatting date:", dateValue, error);
-        return "Invalid Date";
-      }
-    };
-
-    // Helper function to calculate duration
-    const calculateDuration = (entryTime, exitTime) => {
-      if (!entryTime || !exitTime) return null;
-
-      try {
-        const entry = new Date(entryTime);
-        const exit = new Date(exitTime);
-
-        if (isNaN(entry.getTime()) || isNaN(exit.getTime())) {
-          return null;
-        }
-
-        const diff = exit - entry;
-        if (diff < 0) return "0h 0m";
-
-        const hours = Math.floor(diff / (1000 * 60 * 60));
-        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-        return `${hours}h ${minutes}m`;
-      } catch (error) {
-        console.error("Error calculating duration:", error);
-        return null;
-      }
-    };
-
-    // Format trips for frontend
     const formattedTrips = trips.map((trip) => {
-      // Get vehicle number from multiple possible sources
       const vehicleNumber =
-        trip.vehicleId?.vehicleNumber ||
-        trip.vehicleId?.plateNumber ||
-        trip.plateText ||
-        "N/A";
+        trip.vehicleId?.vehicleNumber || trip.vehicleId?.plateNumber || trip.plateText || "N/A";
 
-      const vehicleType = trip.vehicleId?.vehicleType || "N/A";
+      const vendorName = trip.vendorId?.name || trip.vendorId?.companyName || "N/A";
 
-      // Get vendor name from multiple possible sources
-      const vendorName =
-        trip.vendorId?.name || trip.vendorId?.companyName || "N/A";
-
-      // Format entry and exit times
-      const entryTime = formatDate(trip.entryAt);
-      const exitTime = trip.exitAt ? formatDate(trip.exitAt) : null;
-
-      // Calculate duration
-      const duration = trip.exitAt
-        ? calculateDuration(trip.entryAt, trip.exitAt)
-        : "Ongoing";
-
-      // Determine status
-      let status = "active";
-      if (trip.status === "EXITED" || trip.exitAt) {
-        status = "completed";
-      } else if (trip.status === "INSIDE") {
-        status = "active";
-      } else if (trip.status === "DENIED") {
-        status = "denied";
-      } else {
-        status = trip.status?.toLowerCase() || "active";
+      // FR-3.3: Duration
+      let durationMinutes = null;
+      let durationLabel   = "Ongoing";
+      if (trip.exitAt) {
+        durationMinutes = Math.floor((new Date(trip.exitAt) - new Date(trip.entryAt)) / 60000);
+        const h = Math.floor(durationMinutes / 60);
+        const m = durationMinutes % 60;
+        durationLabel = `${h}h ${m}m`;
       }
+
+      // FR-3.4: Overstay flag
+      const elapsedMinutes = Math.floor((Date.now() - new Date(trip.entryAt)) / 60000);
+      const threshold      = trip.overstayThreshold || OVERSTAY_MINUTES;
+      const isOverstay     = trip.status === "INSIDE" && elapsedMinutes > threshold
+                          || trip.status === "OVERSTAY";
+
+      // Status label
+      let statusLabel = trip.status?.toLowerCase() || "active";
+      if (trip.status === "EXITED" || trip.status === "COMPLETED") statusLabel = "completed";
+      else if (trip.status === "INSIDE") statusLabel = isOverstay ? "overstay" : "active";
 
       return {
-        _id: trip._id,
-        tripId: trip.tripId || "N/A",
+        _id:              trip._id,
+        tripId:           trip.tripId || "N/A",
         vehicleNumber,
-        vehicleType,
-        vendor: vendorName,
-        driver: trip.vehicleId?.driverName || "N/A",
-        materialType: trip.loadStatus || "N/A",
-        entryTime: entryTime || "N/A",
-        exitTime: exitTime || "--",
-        duration: duration || "N/A",
-        status,
-        site: trip.siteId?.name || "N/A",
-        supervisor: trip.supervisorId?.name || "N/A",
-        purpose: trip.purpose || "",
-        countofmaterials: trip.countofmaterials || "N/A",
-        entryGate: trip.entryGate || "N/A",
-        exitGate: trip.exitGate || "N/A",
-        loadStatus: trip.loadStatus || "N/A",
-
-        entryMedia: trip.entryMedia || null,
-        exitMedia: trip.exitMedia || null,
+        vehicleType:      trip.vehicleId?.vehicleType || "N/A",
+        vendor:           vendorName,
+        driver:           trip.vehicleId?.driverName || "N/A",
+        entryTime:        trip.entryAt  ? new Date(trip.entryAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "N/A",
+        exitTime:         trip.exitAt   ? new Date(trip.exitAt).toLocaleString("en-IN",  { timeZone: "Asia/Kolkata" }) : "--",
+        // FR-3.3
+        duration:         durationLabel,
+        durationMinutes,
+        // FR-3.4
+        isOverstay,
+        overstayThreshold: trip.overstayThreshold || OVERSTAY_MINUTES,
+        status:           statusLabel,
+        rawStatus:        trip.status,
+        site:             trip.siteId?.name      || "N/A",
+        supervisor:       trip.supervisorId?.name || "N/A",
+        purpose:          trip.purpose           || "",
+        loadStatus:       trip.loadStatus        || "N/A",
+        countofmaterials: trip.countofmaterials  || "N/A",
+        entryGate:        trip.entryGate         || "N/A",
+        exitGate:         trip.exitGate          || "N/A",
+        notes:            trip.notes             || "",
+        creditUsed:       trip.creditUsed        || 0,
+        entryMedia:       trip.entryMedia        || null,
+        exitMedia:        trip.exitMedia         || null,
       };
     });
 
-    // console.log("✅ Trip history formatted:", {
-    //   count: formattedTrips.length,
-    //   sample: formattedTrips[0],
-    // });
-
-    res.json({
+    return res.json({
       success: true,
-      data: formattedTrips,
-      count: formattedTrips.length,
+      data:    formattedTrips,
+      count:   formattedTrips.length,
+      total,
+      page:    parsedPage,
+      pages:   Math.ceil(total / parsedLimit),
       period,
-      siteId,
+      siteId:  siteId || null,
     });
   } catch (error) {
     console.error("❌ Error fetching trip history:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch trip history",
       error: process.env.NODE_ENV === "development" ? error.message : undefined,
@@ -253,8 +202,6 @@ export const getActiveTrips = async (req, res) => {
       });
     }
 
-    const OVERSTAY_MINUTES = 240;
-
     const query = {};
     if (siteId) {
       query.siteId = new mongoose.Types.ObjectId(siteId);
@@ -262,9 +209,9 @@ export const getActiveTrips = async (req, res) => {
       query.clientId = new mongoose.Types.ObjectId(clientId);
     }
 
-    query.status = { $in: ["INSIDE", "active"] };
+    query.status = { $in: ["INSIDE", "OVERSTAY", "active"] };
 
-    const trips = await Trip.find(query)
+    const trips = await TripModel(req).find(query)
       .populate("vendorId", "name companyName")
       .populate(
         "vehicleId",
@@ -282,11 +229,15 @@ export const getActiveTrips = async (req, res) => {
         (now - entryTime.getTime()) / (1000 * 60),
       );
 
+      // FR-3.4: Use per-trip configurable threshold (default 240 min)
+      const threshold = t.overstayThreshold || 240;
+      const isOverstay = durationMinutes > threshold || t.status === "OVERSTAY";
+
       return {
         // 🔑 IDs
-        _id: t._id.toString(), // Trip ID
+        _id: t._id.toString(),
         tripId: t.tripId || "N/A",
-        vehicleId: t.vehicleId?._id?.toString(), // ✅ Vehicle ID (FIX)
+        vehicleId: t.vehicleId?._id?.toString(),
 
         // Vehicle info
         vehicleNumber:
@@ -317,13 +268,15 @@ export const getActiveTrips = async (req, res) => {
         }),
 
         // Duration
-        duration: `${Math.floor(durationMinutes / 60)}h ${
-          durationMinutes % 60
-        }m`,
+        duration: `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}m`,
         durationMinutes,
 
+        // FR-3.4: Overstay
+        isOverstay,
+        overstayThreshold: threshold,
+
         // Status
-        status: durationMinutes > OVERSTAY_MINUTES ? "overstay" : "loading",
+        status: isOverstay ? "overstay" : "loading",
         loadStatus: t.loadStatus || "FULL",
         countofmaterials: t.countofmaterials || "N/A",
         purpose: t.purpose || "N/A",
@@ -364,7 +317,7 @@ export const getTripById = async (req, res) => {
       });
     }
 
-    const trip = await Trip.findById(id)
+    const trip = await TripModel(req).findById(id)
       .populate("vendorId", "name companyName phone email")
       .populate(
         "vehicleId",
@@ -557,7 +510,7 @@ export const exitVehicle = async (req, res) => {
       });
     }
 
-    const vehicle = await Trip.findById({ _id: vehicleId });
+    const vehicle = await TripModel(req).findById({ _id: vehicleId });
 
     if (!vehicle) {
       return res.status(404).json({
@@ -577,7 +530,7 @@ export const exitVehicle = async (req, res) => {
       });
     }
 
-    const trip = await Trip.findOne({
+    const trip = await TripModel(req).findOne({
       _id: vehicleId,
       status: { $ne: "EXITED" },
     }).sort({ entryAt: -1 });
@@ -585,7 +538,7 @@ export const exitVehicle = async (req, res) => {
     if (!trip) {
       console.warn("⚠️ Recovering missing trip for vehicle:", vehicleId);
 
-      const recoveredTrip = await Trip.create({
+      const recoveredTrip = await TripModel(req).create({
         clientId: vehicle.clientId,
         siteId: vehicle.siteId,
         vendorId: vehicle.vendorId,
@@ -977,7 +930,7 @@ export const createManualTrip = async (req, res) => {
 
     const site = await Site.findById(siteId);
 
-    const trip = await Trip.create({
+    const trip = await TripModel(req).create({
       clientId,
       siteId,
       vehicleId: vehicle._id,
@@ -996,18 +949,31 @@ export const createManualTrip = async (req, res) => {
       notes,
       createdBy: supervisorId,
     });
-    try {
-      const barrierDevice = site?.devices?.find(
-        (d) => d.type === "BARRIER" && d.isActive === true,
-      );
 
-      if (barrierDevice?.ipAddress) {
-        await axios.post(
-          `http://${barrierDevice.ipAddress}/analytics/barrier`,
-          {},
-          { timeout: 2000 },
-        );
-      }
+    // FR-7: Deduct 2 credits upfront on entry (covers full trip — entry + exit)
+    let creditResult = null;
+    try {
+      creditResult = await deductCredit({
+        clientId,
+        tripId: trip._id,
+        eventType: "ENTRY",
+        performedBy: supervisorId,
+        performedByRole: req.user.role,
+        amount: 2,
+      });
+      await TripModel(req).findByIdAndUpdate(trip._id, { creditUsed: 2 });
+    } catch (creditErr) {
+      console.error("⚠️ Credit deduction failed on entry:", creditErr.message);
+    }
+
+    try {
+      await triggerBarrierForTrip({
+        siteId,
+        clientId,
+        tripId: trip._id,
+        trigger: "AUTO_ENTRY",
+        triggeredBy: supervisorId,
+      });
     } catch (e) {
       console.error("⚠️ Barrier trigger failed:", e.message);
     }
@@ -1015,6 +981,8 @@ export const createManualTrip = async (req, res) => {
       success: true,
       tripId: trip.tripId,
       entryMedia,
+      creditUsed: creditResult ? 2 : 0,
+      creditBalance: creditResult ? creditResult.balanceAfter : null,
     });
     // 🔓 Barrier trigger (non-blocking, no logic change)
   } catch (err) {
@@ -1191,7 +1159,7 @@ export const createManualTripMobile = async (req, res) => {
     // console.log('📸 Structured entryMedia:', JSON.stringify(entryMedia, null, 2));
 
     // Create trip
-    const trip = await Trip.create({
+    const trip = await TripModel(req).create({
       clientId,
       siteId,
       vehicleId: vehicle._id,
@@ -1212,18 +1180,31 @@ export const createManualTripMobile = async (req, res) => {
       source: "MOBILE",
       isPersonalVehicle: isPersonalVehicle,
     });
-    try {
-      const barrierDevice = site?.devices?.find(
-        (d) => d.type === "BARRIER" && d.isActive === true,
-      );
 
-      if (barrierDevice?.ipAddress) {
-        await axios.post(
-          `http://${barrierDevice.ipAddress}/analytics/barrier`,
-          {},
-          { timeout: 2000 },
-        );
-      }
+    // FR-7: Deduct 2 credits upfront on entry (covers full trip — entry + exit)
+    let mobileCreditResult = null;
+    try {
+      mobileCreditResult = await deductCredit({
+        clientId,
+        tripId: trip._id,
+        eventType: "ENTRY",
+        performedBy: userId,
+        performedByRole: req.user.role,
+        amount: 2,
+      });
+      await TripModel(req).findByIdAndUpdate(trip._id, { creditUsed: 2 });
+    } catch (creditErr) {
+      console.error("⚠️ Mobile credit deduction failed on entry:", creditErr.message);
+    }
+
+    try {
+      await triggerBarrierForTrip({
+        siteId,
+        clientId,
+        tripId: trip._id,
+        trigger: "AUTO_ENTRY",
+        triggeredBy: userId,
+      });
     } catch (e) {
       console.error("⚠️ Mobile barrier trigger failed:", e.message);
     }
@@ -1235,7 +1216,9 @@ export const createManualTripMobile = async (req, res) => {
         tripId: trip.tripId,
         vehicleId: vehicle._id,
         entryAt: trip.entryAt,
-        entryMedia: trip.entryMedia, // 🔥 Return for verification
+        entryMedia: trip.entryMedia,
+        creditUsed: mobileCreditResult ? 2 : 0,
+        creditBalance: mobileCreditResult ? mobileCreditResult.balanceAfter : null,
       },
     });
   } catch (error) {
@@ -1401,7 +1384,7 @@ export const exportTripHistory = async (req, res) => {
     }
 
     // Fetch trips
-    const trips = await Trip.find(query)
+    const trips = await TripModel(req).find(query)
       .populate("vendorId", "name companyName")
       .populate("vehicleId", "vehicleNumber vehicleType")
       .populate("siteId", "name")
@@ -1410,12 +1393,21 @@ export const exportTripHistory = async (req, res) => {
 
     const rows = trips.map((t) => {
       let duration = "--";
+      let durationMinutes = null;
       if (t.exitAt) {
         const diff = new Date(t.exitAt) - new Date(t.entryAt);
-        const h = Math.floor(diff / (1000 * 60 * 60));
-        const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        durationMinutes = Math.floor(diff / (1000 * 60));
+        const h = Math.floor(durationMinutes / 60);
+        const m = durationMinutes % 60;
         duration = `${h}h ${m}m`;
       }
+
+      // FR-3.4: Overstay flag
+      const threshold = t.overstayThreshold || 240;
+      const elapsedMinutes = Math.floor((Date.now() - new Date(t.entryAt)) / (1000 * 60));
+      const isOverstay =
+        (t.status === "INSIDE" && elapsedMinutes > threshold) ||
+        t.status === "OVERSTAY";
 
       return {
         Trip_ID: t.tripId || "N/A",
@@ -1423,16 +1415,17 @@ export const exportTripHistory = async (req, res) => {
         Vehicle_Type: t.vehicleId?.vehicleType || "Unknown",
         Vendor: t.vendorId?.name || t.vendorId?.companyName || "Unknown",
         Site: t.siteId?.name || "Unknown",
-        Entry_Time: t.entryAt
-          ? new Date(t.entryAt).toLocaleString("en-IN")
-          : "N/A",
+        Entry_Time: t.entryAt ? new Date(t.entryAt).toLocaleString("en-IN") : "N/A",
         Exit_Time: t.exitAt ? new Date(t.exitAt).toLocaleString("en-IN") : "--",
         Duration: duration,
+        Duration_Minutes: durationMinutes ?? "--",
         Status: t.status,
+        Overstay: isOverstay ? "Yes" : "No",
         Purpose: t.purpose || "",
         Load_Status: t.loadStatus || "FULL",
         Entry_Gate: t.entryGate || "N/A",
         Exit_Gate: t.exitGate || "N/A",
+        Credits_Used: t.creditUsed || 0,
       };
     });
 
@@ -1576,5 +1569,36 @@ export const getTripStats = async (req, res) => {
       message: "Failed to fetch trip statistics",
       error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
+  }
+};
+
+/**
+ * @desc   Bulk-mark INSIDE trips as OVERSTAY when elapsed time exceeds their threshold
+ * @usage  Called by scheduled job in server.js every 5 minutes
+ */
+export const markOverstayTrips = async () => {
+  try {
+    const now = new Date();
+
+    // Find all INSIDE trips and check against their per-trip threshold
+    // We use an aggregation to compare entryAt + overstayThreshold against now
+    const result = await Trip.updateMany(
+      {
+        status: "INSIDE",
+        $expr: {
+          $gt: [
+            { $subtract: [now, "$entryAt"] },
+            { $multiply: [{ $ifNull: ["$overstayThreshold", 240] }, 60000] },
+          ],
+        },
+      },
+      { $set: { status: "OVERSTAY" } },
+    );
+
+    if (result.modifiedCount > 0) {
+      console.log(`⏰ Overstay job: marked ${result.modifiedCount} trip(s) as OVERSTAY`);
+    }
+  } catch (err) {
+    console.error("❌ Overstay job error:", err.message);
   }
 };

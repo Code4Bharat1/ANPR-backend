@@ -1,7 +1,8 @@
 // routes/supervisor.routes.js
 import express from "express";
-import { verifyAccessToken } from "../middlewares/auth.middleware.js";
+import { verifyAccessToken, resolveTenantDB } from "../middlewares/auth.middleware.js";
 import { authorizeRoles } from "../middlewares/role.middleware.js";
+import { checkCreditBalance } from "../middlewares/checkCreditBalance.middleware.js";
 // Add this import at the top
 import { exportAnalyticsReport, getAllSupervisors, getSupervisorVendors } from "../controllers/supervisor.controller.js";
 import {
@@ -83,18 +84,23 @@ router.post(
   "/vehicles/exit",
   verifyAccessToken,
   authorizeRoles("supervisor"),
+  resolveTenantDB,
   exitVehicle
 );
 router.post(
   "/vehicles/entry",
   verifyAccessToken,
   authorizeRoles("supervisor"),
-  createManualTrip  // यह सही controller है
+  checkCreditBalance,
+  resolveTenantDB,
+  createManualTrip
 );
 router.post(
   "/mobile/trips/manual",
   verifyAccessToken,
   authorizeRoles("supervisor"),
+  checkCreditBalance,
+  resolveTenantDB,
   createManualTripMobile
 );
 

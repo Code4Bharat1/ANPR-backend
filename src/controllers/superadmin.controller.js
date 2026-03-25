@@ -10,7 +10,8 @@ import { PLANS } from "../config/plans.js";
 import { comparePassword, hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 import mongoose from "mongoose";
-
+import { encrypt } from "../utils/encryption.util.js";
+import { invalidateTenantCache } from "../config/tenantDB.js";
 /* ======================================================
    DASHBOARD - Updated for Device Model with devicetype field
 ====================================================== */
@@ -41,22 +42,6 @@ export const dashboardOverview = async (req, res, next) => {
 
     const offlineANPRList = await Device.find(
       { devicetype: "ANPR", isOnline: false },
-      { serialNo: 1, siteId: 1, lastActive: 1, ipAddress: 1 }
-    ).populate("siteId", "name");
-
-    // 🔹 BARRIER stats
-    const totalBarriers = await Device.countDocuments({ devicetype: "BARRIER" });
-    const onlineBarriers = await Device.countDocuments({
-      devicetype: "BARRIER",
-      isOnline: true,
-    });
-    const offlineBarriersCount = await Device.countDocuments({
-      devicetype: "BARRIER",
-      isOnline: false,
-    });
-
-    const offlineBarrierList = await Device.find(
-      { devicetype: "BARRIER", isOnline: false },
       { serialNo: 1, siteId: 1, lastActive: 1, ipAddress: 1 }
     ).populate("siteId", "name");
 
@@ -98,19 +83,13 @@ export const dashboardOverview = async (req, res, next) => {
         totalDevices,
         activeDevices,
         totalANPRDevices,
-        totalBarriers,
-        totalBiometricDevices, // ✅ added
+        totalBiometricDevices,
         todayTrips,
       },
       deviceHealth: {
         online: onlineANPRDevices,
         offline: offlineANPRCount,
         offlineDevices: offlineANPRList,
-      },
-      barrierHealth: {
-        online: onlineBarriers,
-        offline: offlineBarriersCount,
-        offlineBarriers: offlineBarrierList,
       },
       biometricHealth: {
         online: onlineBiometricDevices,
@@ -121,9 +100,7 @@ export const dashboardOverview = async (req, res, next) => {
         server: "Operational",
         database: "Healthy",
         connectivity:
-          offlineANPRCount > 0 ||
-          offlineBarriersCount > 0 ||
-          offlineBiometricCount > 0
+          offlineANPRCount > 0 || offlineBiometricCount > 0
             ? "Degraded"
             : "Operational",
       },
@@ -675,7 +652,10 @@ export const createDevice = async (req, res) => {
       deviceType,
       serialNumber,
       ipAddress,
-      notes
+      notes,
+      role,
+      gateId,
+      lane,
     } = req.body;
 
     if (!clientId || !deviceType || !deviceName || !serialNumber || !ipAddress || !siteId) {
@@ -684,19 +664,16 @@ export const createDevice = async (req, res) => {
 
     const normalizedType = deviceType.toUpperCase();
 
-    // Client check (basic)
     const client = await Client.findById(clientId);
     if (!client || !client.isActive) {
       return res.status(403).json({ message: "Client inactive or not found" });
     }
 
-    // Site check
     const site = await Site.findOne({ _id: siteId, clientId });
     if (!site) {
       return res.status(404).json({ message: "Site not found for this client" });
     }
 
-    // Duplicate checks
     if (await Device.findOne({ serialNo: serialNumber })) {
       return res.status(409).json({ message: "Serial number already exists" });
     }
@@ -705,7 +682,14 @@ export const createDevice = async (req, res) => {
       return res.status(409).json({ message: "IP already used for this client" });
     }
 
-    // ✅ CREATE (limit already validated in middleware)
+    // Validate gateId if provided
+    if (gateId) {
+      const gateExists = site.gates.some(g => g._id.toString() === gateId);
+      if (!gateExists) {
+        return res.status(400).json({ message: "gateId does not exist on this site" });
+      }
+    }
+
     const device = await Device.create({
       clientId,
       siteId,
@@ -714,20 +698,36 @@ export const createDevice = async (req, res) => {
       serialNo: serialNumber,
       ipAddress,
       notes,
+      role: role ? role.toUpperCase() : null,
+      gateId: gateId || null,
+      lane: lane || null,
       isEnabled: true,
-      isOnline: false
+      isOnline: false,
     });
 
-    await Site.findByIdAndUpdate(siteId, {
-      $addToSet: { assignedDevices: device._id }
-    });
+    await Site.findByIdAndUpdate(siteId, { $addToSet: { assignedDevices: device._id } });
 
-    res.status(201).json({
-      success: true,
-      message: "Device created successfully",
-      data: device
-    });
+    // Sync gate device arrays
+    if (gateId) {
+      const arrayFields = [];
+      if (normalizedType === "TOP_CAMERA") arrayFields.push("topCameraDevices");
+      if (normalizedType === "ANPR") {
+        const r = role?.toUpperCase();
+        if (r === "ENTRY")      arrayFields.push("entryDevices");
+        if (r === "EXIT")       arrayFields.push("exitDevices");
+        if (r === "ENTRY_EXIT") arrayFields.push("entryDevices", "exitDevices");
+      }
+      if (arrayFields.length) {
+        const pushOps = {};
+        arrayFields.forEach(f => { pushOps[`gates.$.${f}`] = device._id; });
+        await Site.updateOne(
+          { _id: siteId, "gates._id": gateId },
+          { $addToSet: pushOps }
+        );
+      }
+    }
 
+    res.status(201).json({ success: true, message: "Device created successfully", data: device });
   } catch (err) {
     console.error("CREATE DEVICE ERROR:", err);
     res.status(500).json({ message: "Server error" });
@@ -1104,5 +1104,188 @@ export const listNotifications = async (req, res, next) => {
     res.json(list);
   } catch (e) {
     next(e);
+  }
+};
+
+/* ======================================================
+   FR-9.4: PER-CLIENT PLAN OVERRIDE
+   PATCH /api/superadmin/clients/:id/plan-override
+   Body: {
+     featuresOverride: { barrierAutomation: true, biometricOpening: false, ... },
+     deviceLimits:     { ANPR: 3, BARRIER: 2, ... },
+     userLimits:       { pm: 5, supervisor: 10 },
+     siteLimits:       7
+   }
+====================================================== */
+export const updatePlanOverride = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { featuresOverride, deviceLimits, userLimits, siteLimits } = req.body;
+
+    const client = await Client.findById(id);
+    if (!client) {
+      return res.status(404).json({ success: false, message: "Client not found" });
+    }
+
+    const oldValue = client.toObject();
+    const updateData = {};
+
+    // Feature flag overrides (FR-9.4)
+    if (featuresOverride && typeof featuresOverride === "object") {
+      const validKeys = ["barrierAutomation", "biometricOpening", "topCamera", "aiAnalytics", "dedicatedDB"];
+      const sanitized = {};
+      for (const key of validKeys) {
+        if (key in featuresOverride) sanitized[key] = Boolean(featuresOverride[key]);
+      }
+      updateData.featuresOverride = sanitized;
+    }
+
+    // Device limit overrides
+    if (deviceLimits && typeof deviceLimits === "object") {
+      const validTypes = ["ANPR", "BARRIER", "BIOMETRIC", "TOP_CAMERA", "OVERVIEW"];
+      const sanitized = {};
+      for (const type of validTypes) {
+        if (type in deviceLimits) sanitized[type] = Number(deviceLimits[type]);
+      }
+      updateData.deviceLimits = { ...client.deviceLimits?.toObject?.() ?? {}, ...sanitized };
+    }
+
+    // User limit overrides
+    if (userLimits && typeof userLimits === "object") {
+      updateData.userLimits = {
+        pm:         userLimits.pm         != null ? Number(userLimits.pm)         : client.userLimits?.pm,
+        supervisor: userLimits.supervisor != null ? Number(userLimits.supervisor) : client.userLimits?.supervisor,
+      };
+    }
+
+    // Site limit override
+    if (siteLimits != null) {
+      updateData.siteLimits = Number(siteLimits);
+    }
+
+    const updated = await Client.findByIdAndUpdate(id, updateData, { new: true });
+
+    await logAudit({
+      req,
+      action: "PLAN_OVERRIDE",
+      module: "CLIENT",
+      oldValue,
+      newValue: updated.toObject(),
+    });
+
+    res.json({
+      success: true,
+      message: "Plan override updated successfully",
+      data: {
+        clientId: updated._id,
+        packageType: updated.packageType,
+        featuresOverride: updated.featuresOverride,
+        deviceLimits: updated.deviceLimits,
+        userLimits: updated.userLimits,
+        siteLimits: updated.siteLimits,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+
+/* ======================================================
+   PROVISION DEDICATED DB
+   POST /api/superadmin/clients/:id/provision-db
+   Body: { connectionString: "mongodb+srv://...", dbName: "client_xyz" }
+   Auth: superadmin only
+
+   Encrypts the connection string and stores it on the client.
+   Sets dbConfig.mode = "dedicated".
+   The TenantConnectionManager will pick this up on the next request.
+====================================================== */
+
+
+export const provisionDedicatedDB = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { connectionString, dbName } = req.body;
+
+    if (!connectionString) {
+      return res.status(400).json({ message: "connectionString is required" });
+    }
+
+    const client = await Client.findById(id);
+    if (!client) {
+      return res.status(404).json({ message: "Client not found" });
+    }
+
+    if (client.packageType !== "ENTERPRISE") {
+      return res.status(403).json({
+        message: "Dedicated DB is only available for ENTERPRISE clients",
+        code: "FEATURE_NOT_IN_PLAN",
+      });
+    }
+
+    // Encrypt before storing (NFR-S8)
+    const encryptedURI = encrypt(connectionString);
+
+    await Client.findByIdAndUpdate(id, {
+      "dbConfig.mode": "dedicated",
+      "dbConfig.connectionString": encryptedURI,
+      "dbConfig.dbName": dbName || null,
+    });
+
+    await logAudit({
+      req,
+      action: "PROVISION_DB",
+      module: "CLIENT",
+      newValue: { clientId: id, mode: "dedicated", dbName: dbName || null },
+    });
+
+    invalidateTenantCache(id);
+
+    return res.json({
+      success: true,
+      message: "Dedicated DB provisioned successfully",
+      data: { mode: "dedicated", dbName: dbName || null },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/* ======================================================
+   DEPROVISION DEDICATED DB
+   DELETE /api/superadmin/clients/:id/provision-db
+   Reverts client back to shared DB mode.
+====================================================== */
+export const deprovisionDedicatedDB = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const client = await Client.findById(id);
+    if (!client) {
+      return res.status(404).json({ message: "Client not found" });
+    }
+
+    await Client.findByIdAndUpdate(id, {
+      "dbConfig.mode": "shared",
+      "dbConfig.connectionString": null,
+      "dbConfig.dbName": null,
+    });
+
+    await logAudit({
+      req,
+      action: "DEPROVISION_DB",
+      module: "CLIENT",
+      newValue: { clientId: id, mode: "shared" },
+    });
+
+    invalidateTenantCache(id);
+
+    return res.json({
+      success: true,
+      message: "Client reverted to shared DB",
+    });
+  } catch (err) {
+    next(err);
   }
 };

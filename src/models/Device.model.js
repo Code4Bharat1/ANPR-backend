@@ -20,10 +20,29 @@ const deviceSchema = new mongoose.Schema(
       required: true // Ensures that each device is assigned to a site
     },
 
-    // Device type: "ANPR" or "BARRIER"
+    // FR-4.1: Device type
     devicetype: {
       type: String,
-      enum: ["ANPR", "BARRIER", "BIOMETRIC"],
+      enum: ["ANPR", "BIOMETRIC", "TOP_CAMERA", "OVERVIEW"],
+    },
+
+    // FR-4.1 / FR-4.2: Role of this device at its gate
+    role: {
+      type: String,
+      enum: ["ENTRY", "EXIT", "ENTRY_EXIT", "MATERIAL_CAPTURE", "ACCESS_CONTROL"],
+      default: null,
+    },
+
+    // FR-4.2: Gate within the site this device is assigned to
+    gateId: {
+      type: String,   // matches gate._id (ObjectId stored as string) in Site.gates[]
+      default: null,
+    },
+
+    // FR-4.2: Lane identifier within the gate (e.g. "Lane 1", "Left")
+    lane: {
+      type: String,
+      default: null,
     },
 
     

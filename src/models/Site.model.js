@@ -45,6 +45,11 @@ const siteSchema = new mongoose.Schema(
         gateCode: String,
         isMainGate: { type: Boolean, default: false },
         isActive: { type: Boolean, default: true },
+
+        // FR-4.3: Device arrays per gate
+        entryDevices:    [{ type: mongoose.Schema.Types.ObjectId, ref: "Device" }],
+        exitDevices:     [{ type: mongoose.Schema.Types.ObjectId, ref: "Device" }],
+        topCameraDevices:[{ type: mongoose.Schema.Types.ObjectId, ref: "Device" }],
       },
     ],
 

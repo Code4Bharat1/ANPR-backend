@@ -129,6 +129,19 @@ const tripSchema = new mongoose.Schema(
       default: "INSIDE",
     },
 
+    // FR-3.4: Overstay threshold in minutes (default 240 = 4 hours)
+    // Stored per-trip so it can be customised per site/client in future
+    overstayThreshold: {
+      type: Number,
+      default: 240,
+    },
+
+    // Credit tracking (FR-7)
+    creditUsed: {
+      type: Number,
+      default: 0,
+    },
+
     // Creator Reference
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -151,20 +164,35 @@ tripSchema.virtual('exitTime').get(function () {
   return this.exitAt;
 });
 
-// // Auto-generate tripId before save
+// FR-3.3: Duration in minutes (null while trip is active)
+tripSchema.virtual('durationMinutes').get(function () {
+  if (!this.exitAt) return null;
+  return Math.floor((new Date(this.exitAt) - new Date(this.entryAt)) / (1000 * 60));
+});
+
+// FR-3.4: Whether this trip is/was an overstay
+tripSchema.virtual('isOverstay').get(function () {
+  const threshold = this.overstayThreshold || 240;
+  const elapsed = Math.floor((Date.now() - new Date(this.entryAt)) / (1000 * 60));
+  return this.status === 'INSIDE' && elapsed > threshold;
+});
+
+// FR-3.6: Auto-generate tripId (TR-XXXXXX) — uses random hex to avoid collision under load
 tripSchema.pre('save', async function (next) {
   if (!this.tripId) {
-    const count = await mongoose.model('Trip').countDocuments();
-    this.tripId = `TR-${String(count + 1).padStart(6, '0')}`;
+    const suffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+    this.tripId = `TR-${suffix}`;
   }
   next();
 });
 
 // Index for better query performance
 tripSchema.index({ siteId: 1, status: 1 });
+tripSchema.index({ clientId: 1, entryAt: -1 });
 tripSchema.index({ vendorId: 1 });
 tripSchema.index({ projectManagerId: 1, entryAt: -1 });
 tripSchema.index({ plateText: 1 });
+tripSchema.index({ status: 1, entryAt: 1 }); // for overstay job
 
 // Method to calculate trip duration
 tripSchema.methods.getDuration = function () {

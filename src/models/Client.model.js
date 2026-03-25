@@ -95,14 +95,64 @@ const clientSchema = new mongoose.Schema(
       supervisor: { type: Number, default: 0 },
     },
     deviceLimits: {
-      ANPR: { type: Number, default: 0 },
-      BARRIER: { type: Number, default: 0 },
-      BIOMETRIC: { type: Number, default: 0 },
+      ANPR:        { type: Number, default: 0 },
+      BIOMETRIC:   { type: Number, default: 0 },
+      TOP_CAMERA:  { type: Number, default: 0 },
+      OVERVIEW:    { type: Number, default: 0 },
     },
 
+    // FR-9.1: Per-client site limit override (null = use plan default)
+    siteLimits: {
+      type: Number,
+      default: null,
+    },
+
+    // FR-9.4: Per-client feature flag overrides set by SuperAdmin
+    // Keys match PLANS[plan].features — true/false overrides plan default
+    featuresOverride: {
+      type: Object,
+      default: {},
+    },
 
     packageStart: Date,
     packageEnd: Date,
+
+    /* =====================
+       DEDICATED DB (SRS §10)
+       ENTERPRISE plan only.
+       connectionString is stored AES-256-GCM encrypted (see encryption.util.js).
+    ===================== */
+    dbConfig: {
+      mode: {
+        type: String,
+        enum: ["shared", "dedicated"],
+        default: "shared",
+      },
+      // Encrypted MongoDB URI — decrypt with encryption.util.decrypt()
+      connectionString: {
+        type: String,
+        default: null,
+        select: false, // never returned in API responses
+      },
+      dbName: {
+        type: String,
+        default: null,
+      },
+    },
+
+    /* =====================
+       CREDIT SYSTEM (FR-7)
+    ===================== */
+    creditBalance: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    // Alert threshold — notify when balance drops below this
+    creditThreshold: {
+      type: Number,
+      default: 10,
+    },
 
     /* =====================
        META

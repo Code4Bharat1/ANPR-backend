@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Client from '../models/Client.model.js';
 import Device from '../models/Device.model.js';
+import { getPlanLimits } from '../utils/planFeatures.util.js';
 
 export const checkDeviceLimit = async (req, res, next) => {
   try {
@@ -14,17 +15,21 @@ export const checkDeviceLimit = async (req, res, next) => {
 
     const normalizedType = deviceType.toUpperCase();
 
-    const client = await Client.findById(clientId);
+    const client = await Client.findById(clientId).lean();
     if (!client || !client.isActive) {
       return res.status(403).json({ message: "Client inactive or not found" });
     }
 
-    const allowedLimit = Number(client.deviceLimits?.[normalizedType] ?? 0);
+    // FR-9.4: getPlanLimits merges plan defaults with per-client overrides
+    const limits = getPlanLimits(client);
+    const allowedLimit = Number(limits.devices?.[normalizedType] ?? 0);
 
     if (allowedLimit === 0) {
       return res.status(403).json({
-        message: `${normalizedType} not allowed in ${client.packageType}`,
-        code: "DEVICE_TYPE_NOT_ALLOWED"
+        success: false,
+        code: "FEATURE_NOT_IN_PLAN",
+        message: `${normalizedType} devices are not available in your ${client.packageType} plan`,
+        plan: client.packageType,
       });
     }
 
@@ -36,22 +41,12 @@ export const checkDeviceLimit = async (req, res, next) => {
 
     if (clientCount >= allowedLimit) {
       return res.status(403).json({
-        message: `${normalizedType} limit exceeded`,
-        code: "CLIENT_DEVICE_LIMIT_EXCEEDED"
-      });
-    }
-
-    const siteCount = await Device.countDocuments({
-      clientId,
-      siteId,
-      devicetype: normalizedType,
-      isEnabled: true
-    });
-
-    if (siteCount >= allowedLimit) {
-      return res.status(403).json({
-        message: `${normalizedType} limit exceeded for this site`,
-        code: "SITE_DEVICE_LIMIT_EXCEEDED"
+        success: false,
+        code: "DEVICE_LIMIT_EXCEEDED",
+        message: `${normalizedType} device limit reached (${clientCount}/${allowedLimit})`,
+        current: clientCount,
+        limit: allowedLimit,
+        plan: client.packageType,
       });
     }
 
@@ -67,14 +62,11 @@ export const checkDeviceLimitForToggle = async (req, res, next) => {
   try {
     const deviceId = req.params.id;
     
-    // Get device details
     const device = await Device.findById(deviceId)
-      .populate('clientId', 'companyName packageType deviceLimits isActive');
+      .populate('clientId', 'companyName packageType deviceLimits userLimits siteLimits featuresOverride isActive');
     
     if (!device) {
-      return res.status(404).json({ 
-        message: "Device not found" 
-      });
+      return res.status(404).json({ message: "Device not found" });
     }
 
     // Only check limits when ENABLING a device
@@ -82,66 +74,43 @@ export const checkDeviceLimitForToggle = async (req, res, next) => {
       const client = device.clientId;
       
       if (!client || !client.isActive) {
-        return res.status(403).json({ 
-          message: "Client is inactive or not found" 
-        });
+        return res.status(403).json({ message: "Client is inactive or not found" });
       }
 
-      const allowedLimit = Number(client.deviceLimits?.[device.devicetype] ?? 0);
+      // FR-9.4: use getPlanLimits for override support
+      const limits = getPlanLimits(client.toObject ? client.toObject() : client);
+      const allowedLimit = Number(limits.devices?.[device.devicetype] ?? 0);
       
       if (allowedLimit === 0) {
         return res.status(403).json({
-          message: `${device.devicetype} devices are not allowed in current package`,
-          code: "DEVICE_TYPE_NOT_ALLOWED"
+          success: false,
+          code: "FEATURE_NOT_IN_PLAN",
+          message: `${device.devicetype} devices are not available in your plan`,
         });
       }
 
-      // Count enabled devices of this type for the client
       const enabledCount = await Device.countDocuments({
         clientId: device.clientId,
         devicetype: device.devicetype,
         isEnabled: true,
-        _id: { $ne: deviceId } // Exclude current device
+        _id: { $ne: deviceId }
       });
 
       if (enabledCount >= allowedLimit) {
         return res.status(403).json({
-          message: `Cannot enable ${device.devicetype} device. Client limit reached`,
-          details: {
-            current: enabledCount,
-            limit: allowedLimit,
-            remaining: 0
-          },
-          code: "DEVICE_LIMIT_EXCEEDED"
+          success: false,
+          code: "DEVICE_LIMIT_EXCEEDED",
+          message: `Cannot enable ${device.devicetype} device. Limit reached (${enabledCount}/${allowedLimit})`,
+          current: enabledCount,
+          limit: allowedLimit,
         });
-      }
-
-      // Optional: Check site-wise limit
-      if (device.siteId) {
-        const siteEnabledCount = await Device.countDocuments({
-          clientId: device.clientId,
-          siteId: device.siteId,
-          devicetype: device.devicetype,
-          isEnabled: true,
-          _id: { $ne: deviceId }
-        });
-
-        if (siteEnabledCount >= allowedLimit) {
-          return res.status(403).json({
-            message: `Cannot enable ${device.devicetype} device. Site limit reached`,
-            siteId: device.siteId,
-            code: "SITE_DEVICE_LIMIT_EXCEEDED"
-          });
-        }
       }
     }
 
     next();
   } catch (error) {
     console.error("Toggle device limit check error:", error);
-    res.status(500).json({ 
-      message: "Server error" 
-    });
+    res.status(500).json({ message: "Server error" });
   }
 };
 
@@ -151,28 +120,23 @@ export const checkDeviceLimitForUpdate = async (req, res, next) => {
     const deviceId = req.params.id;
     const { siteId } = req.body;
     
-    // If not changing site, skip check
     if (!siteId) return next();
 
     const device = await Device.findById(deviceId);
     if (!device) {
-      return res.status(404).json({ 
-        message: "Device not found" 
-      });
+      return res.status(404).json({ message: "Device not found" });
     }
 
-    const client = await Client.findById(device.clientId);
+    const client = await Client.findById(device.clientId).lean();
     if (!client || !client.isActive) {
-      return res.status(403).json({ 
-        message: "Client is inactive or not found" 
-      });
+      return res.status(403).json({ message: "Client is inactive or not found" });
     }
 
-    // Check if device is being moved to a new site
     if (siteId !== device.siteId?.toString()) {
-      const allowedLimit = Number(client.deviceLimits?.[device.devicetype] ?? 0);
+      // FR-9.4: use getPlanLimits for override support
+      const limits = getPlanLimits(client);
+      const allowedLimit = Number(limits.devices?.[device.devicetype] ?? 0);
       
-      // Check limit at new site
       const newSiteCount = await Device.countDocuments({
         clientId: device.clientId,
         siteId: new mongoose.Types.ObjectId(siteId),
@@ -182,11 +146,11 @@ export const checkDeviceLimitForUpdate = async (req, res, next) => {
 
       if (newSiteCount >= allowedLimit) {
         return res.status(403).json({
-          message: `Cannot move device to this site. ${device.devicetype} limit reached`,
-          siteId: siteId,
-          currentCount: newSiteCount,
+          success: false,
+          code: "DEVICE_LIMIT_EXCEEDED",
+          message: `Cannot move device to this site. ${device.devicetype} limit reached (${newSiteCount}/${allowedLimit})`,
+          current: newSiteCount,
           limit: allowedLimit,
-          code: "SITE_DEVICE_LIMIT_EXCEEDED"
         });
       }
     }
@@ -194,8 +158,6 @@ export const checkDeviceLimitForUpdate = async (req, res, next) => {
     next();
   } catch (error) {
     console.error("Update device limit check error:", error);
-    res.status(500).json({ 
-      message: "Server error" 
-    });
+    res.status(500).json({ message: "Server error" });
   }
 };

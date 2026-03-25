@@ -10,11 +10,9 @@ import {
   toggleClient,
   getClientDashboard,
   createProjectManager,
-
   getMyProfile,
   createusers,
   listUsers,
-
   getSettings,
   updateSettings,
   updateMyProfile,
@@ -24,20 +22,75 @@ import {
   updateProjectManager,
   deleteProjectManager,
   deleteSupervisor,
-
 } from "../controllers/client.controller.js";
 import { checkUserLimit } from "../middlewares/checkUserLimit.middleware.js";
-import { createClientSite, deleteClientSite, getClientSites, updateClientSite, } from "../controllers/site.controller.js";
+import { checkSiteLimit } from "../middlewares/checkSiteLimit.middleware.js";
+import { createClientSite, deleteClientSite, getClientSites, updateClientSite } from "../controllers/site.controller.js";
 import { createSupervisor, getAllSupervisors, updateSupervisor } from "../controllers/supervisor.controller.js";
 import { getDevices } from "../controllers/device.controller.js";
 import { exportReports, exportReportsToExcelPM, getReports, getReportStatsPM, getTripReportsPM, siteWise, summary } from "../controllers/report.controller.js";
-// In client.routes.js
+import { getPlanFeatures, getPlanLimits } from "../utils/planFeatures.util.js";
+import Client from "../models/Client.model.js";
+import Site from "../models/Site.model.js";
+import Device from "../models/Device.model.js";
+import ProjectManagerModel from "../models/ProjectManager.model.js";
+import SupervisorModel from "../models/supervisor.model.js";
 const router = express.Router();
-/**
- * @route   POST /api/clients
- * @desc    Create new client
- * @access  SuperAdmin
- */
+
+// FR-9: Plan info — returns current limits, usage, and feature flags for the client
+router.get(
+  "/plan-info",
+  verifyAccessToken,
+  authorizeRoles("client", "admin"),
+  async (req, res) => {
+    try {
+      const clientId = req.user.clientId;
+      const client = await Client.findById(clientId).lean();
+      if (!client) return res.status(404).json({ success: false, message: "Client not found" });
+
+      const limits = getPlanLimits(client);
+      const features = getPlanFeatures(client);
+
+      const [siteCount, pmCount, supervisorCount, deviceCounts] = await Promise.all([
+        Site.countDocuments({ clientId, isActive: { $ne: false } }),
+        ProjectManagerModel.countDocuments({ clientId, isActive: true }),
+        SupervisorModel.countDocuments({ clientId, isActive: true }),
+        Device.aggregate([
+          { $match: { clientId: client._id, isEnabled: true } },
+          { $group: { _id: "$devicetype", count: { $sum: 1 } } },
+        ]),
+      ]);
+
+      const deviceUsage = {};
+      deviceCounts.forEach(({ _id, count }) => { deviceUsage[_id] = count; });
+
+      res.json({
+        success: true,
+        data: {
+          plan: client.packageType,
+          features,
+          limits: {
+            sites:      { limit: limits.sites,      used: siteCount },
+            pm:         { limit: limits.pm,          used: pmCount },
+            supervisor: { limit: limits.supervisor,  used: supervisorCount },
+            devices: Object.fromEntries(
+              Object.entries(limits.devices).map(([type, limit]) => [
+                type,
+                { limit, used: deviceUsage[type] ?? 0 },
+              ])
+            ),
+          },
+          overrides: {
+            featuresOverride: client.featuresOverride ?? {},
+            siteLimits:       client.siteLimits ?? null,
+          },
+        },
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, message: "Failed to fetch plan info" });
+    }
+  }
+);
 router.post(
   "/",
   verifyAccessToken,
@@ -156,6 +209,7 @@ router.post(
   "/sites",
   verifyAccessToken,
   authorizeRoles("client", "admin"),
+  checkSiteLimit,
   createClientSite
 );
 
