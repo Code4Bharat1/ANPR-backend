@@ -3,7 +3,6 @@ import express from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
-import dotenv from "dotenv";
 import http from "http";
 import connectDB from "./src/config/db.js";
 
@@ -34,8 +33,6 @@ import { errorMiddleware } from "./src/middlewares/error.middleware.js";
 import { initAgentWebSocket } from "./src/agent/agent.ws.js";
 import { markOverstayTrips } from "./src/controllers/trip.controller.js";
 import { closeAllConnections } from "./src/config/tenantDB.js";
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
