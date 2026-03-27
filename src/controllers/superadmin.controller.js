@@ -15,94 +15,450 @@ import { invalidateTenantCache } from "../config/tenantDB.js";
 /* ======================================================
    DASHBOARD - Updated for Device Model with devicetype field
 ====================================================== */
+// export const dashboardOverview = async (req, res, next) => {
+//   try {
+//     const totalClients = await Client.countDocuments();
+//     const activeClients = await Client.countDocuments({ isActive: true });
+//     const expiredClients = await Client.countDocuments({
+//       packageEnd: { $lt: new Date() },
+//     });
+
+//     const totalSites = await Site.countDocuments();
+
+//     // 🔹 Total devices (ALL)
+//     const totalDevices = await Device.countDocuments();
+//     const activeDevices = await Device.countDocuments({ isEnabled: true });
+
+//     // 🔹 ANPR stats
+//     const totalANPRDevices = await Device.countDocuments({ devicetype: "ANPR" });
+//     const onlineANPRDevices = await Device.countDocuments({
+//       devicetype: "ANPR",
+//       isOnline: true,
+//     });
+//     const offlineANPRCount = await Device.countDocuments({
+//       devicetype: "ANPR",
+//       isOnline: false,
+//     });
+
+//     const offlineANPRList = await Device.find(
+//       { devicetype: "ANPR", isOnline: false },
+//       { serialNo: 1, siteId: 1, lastActive: 1, ipAddress: 1 }
+//     ).populate("siteId", "name");
+
+//     // 🔹 BIOMETRIC stats ✅
+//     const totalBiometricDevices = await Device.countDocuments({
+//       devicetype: "BIOMETRIC",
+//     });
+//     const onlineBiometricDevices = await Device.countDocuments({
+//       devicetype: "BIOMETRIC",
+//       isOnline: true,
+//     });
+//     const offlineBiometricCount = await Device.countDocuments({
+//       devicetype: "BIOMETRIC",
+//       isOnline: false,
+//     });
+
+//     const offlineBiometricList = await Device.find(
+//       { devicetype: "BIOMETRIC", isOnline: false },
+//       { serialNo: 1, siteId: 1, lastActive: 1, ipAddress: 1 }
+//     ).populate("siteId", "name");
+
+//     // 🔹 Today trips
+//     const todayStart = new Date();
+//     todayStart.setHours(0, 0, 0, 0);
+
+//     const todayTrips = await Trip.countDocuments({
+//       createdAt: { $gte: todayStart },
+//     });
+
+//     res.json({
+//       overview: {
+//         totalClients,
+//         activeClients,
+//         expiredClients,
+//         totalRevenue: null,
+//       },
+//       operations: {
+//         totalSites,
+//         totalDevices,
+//         activeDevices,
+//         totalANPRDevices,
+//         totalBiometricDevices,
+//         todayTrips,
+//       },
+//       deviceHealth: {
+//         online: onlineANPRDevices,
+//         offline: offlineANPRCount,
+//         offlineDevices: offlineANPRList,
+//       },
+//       biometricHealth: {
+//         online: onlineBiometricDevices,
+//         offline: offlineBiometricCount,
+//         offlineBiometricDevices: offlineBiometricList,
+//       },
+//       systemHealth: {
+//         server: "Operational",
+//         database: "Healthy",
+//         connectivity:
+//           offlineANPRCount > 0 || offlineBiometricCount > 0
+//             ? "Degraded"
+//             : "Operational",
+//       },
+//     });
+//   } catch (e) {
+//     next(e);
+//   }
+// };
+
+/* ======================================================
+   DASHBOARD - Updated for Device Model with devicetype field
+   & Credit Management Integration
+====================================================== */
 export const dashboardOverview = async (req, res, next) => {
   try {
+    // Client Statistics
     const totalClients = await Client.countDocuments();
     const activeClients = await Client.countDocuments({ isActive: true });
     const expiredClients = await Client.countDocuments({
       packageEnd: { $lt: new Date() },
     });
 
+    // Site Statistics
     const totalSites = await Site.countDocuments();
 
-    // 🔹 Total devices (ALL)
+    // Device Statistics - Complete breakdown
     const totalDevices = await Device.countDocuments();
     const activeDevices = await Device.countDocuments({ isEnabled: true });
+    const onlineDevices = await Device.countDocuments({ isOnline: true });
+    const offlineDevices = await Device.countDocuments({ isOnline: false });
 
-    // 🔹 ANPR stats
-    const totalANPRDevices = await Device.countDocuments({ devicetype: "ANPR" });
-    const onlineANPRDevices = await Device.countDocuments({
-      devicetype: "ANPR",
-      isOnline: true,
-    });
-    const offlineANPRCount = await Device.countDocuments({
-      devicetype: "ANPR",
-      isOnline: false,
-    });
+    // Device Type Breakdown
+    const deviceTypeStats = {
+      ANPR: {
+        total: await Device.countDocuments({ devicetype: "ANPR" }),
+        online: await Device.countDocuments({ devicetype: "ANPR", isOnline: true }),
+        offline: await Device.countDocuments({ devicetype: "ANPR", isOnline: false }),
+        enabled: await Device.countDocuments({ devicetype: "ANPR", isEnabled: true }),
+      },
+      TOP_CAMERA: {
+        total: await Device.countDocuments({ devicetype: "TOP_CAMERA" }),
+        online: await Device.countDocuments({ devicetype: "TOP_CAMERA", isOnline: true }),
+        offline: await Device.countDocuments({ devicetype: "TOP_CAMERA", isOnline: false }),
+        enabled: await Device.countDocuments({ devicetype: "TOP_CAMERA", isEnabled: true }),
+      },
+      BIOMETRIC: {
+        total: await Device.countDocuments({ devicetype: "BIOMETRIC" }),
+        online: await Device.countDocuments({ devicetype: "BIOMETRIC", isOnline: true }),
+        offline: await Device.countDocuments({ devicetype: "BIOMETRIC", isOnline: false }),
+        enabled: await Device.countDocuments({ devicetype: "BIOMETRIC", isEnabled: true }),
+      },
+      OVERVIEW: {
+        total: await Device.countDocuments({ devicetype: "OVERVIEW" }),
+        online: await Device.countDocuments({ devicetype: "OVERVIEW", isOnline: true }),
+        offline: await Device.countDocuments({ devicetype: "OVERVIEW", isOnline: false }),
+        enabled: await Device.countDocuments({ devicetype: "OVERVIEW", isEnabled: true }),
+      },
+    };
 
-    const offlineANPRList = await Device.find(
-      { devicetype: "ANPR", isOnline: false },
-      { serialNo: 1, siteId: 1, lastActive: 1, ipAddress: 1 }
-    ).populate("siteId", "name");
+    // Offline Devices List (for monitoring)
+    const offlineDevicesList = await Device.find(
+      { isOnline: false },
+      { 
+        deviceName: 1, 
+        serialNo: 1, 
+        devicetype: 1,
+        siteId: 1, 
+        lastActive: 1, 
+        ipAddress: 1,
+        isEnabled: 1
+      }
+    )
+      .populate("siteId", "name")
+      .populate("clientId", "companyName name")
+      .sort({ lastActive: -1 })
+      .limit(20);
 
-    // 🔹 BIOMETRIC stats ✅
-    const totalBiometricDevices = await Device.countDocuments({
-      devicetype: "BIOMETRIC",
-    });
-    const onlineBiometricDevices = await Device.countDocuments({
-      devicetype: "BIOMETRIC",
-      isOnline: true,
-    });
-    const offlineBiometricCount = await Device.countDocuments({
-      devicetype: "BIOMETRIC",
-      isOnline: false,
-    });
+    // Credit Statistics
+    const creditStats = await getCreditStatistics();
 
-    const offlineBiometricList = await Device.find(
-      { devicetype: "BIOMETRIC", isOnline: false },
-      { serialNo: 1, siteId: 1, lastActive: 1, ipAddress: 1 }
-    ).populate("siteId", "name");
-
-    // 🔹 Today trips
+    // Today's Activity
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-
+    
     const todayTrips = await Trip.countDocuments({
       createdAt: { $gte: todayStart },
     });
 
+    // Recent Activity (last 24 hours)
+    const last24Hours = new Date();
+    last24Hours.setHours(last24Hours.getHours() - 24);
+    
+    const recentTrips = await Trip.countDocuments({
+      createdAt: { $gte: last24Hours },
+    });
+
+    const recentDeviceActivations = await Device.countDocuments({
+      lastActive: { $gte: last24Hours },
+    });
+
+    // System Health Assessment
+    const systemHealth = assessSystemHealth(deviceTypeStats, creditStats);
+
     res.json({
-      overview: {
-        totalClients,
-        activeClients,
-        expiredClients,
-        totalRevenue: null,
+      success: true,
+      data: {
+        // Client Overview
+        clients: {
+          total: totalClients,
+          active: activeClients,
+          expired: expiredClients,
+          activePercentage: totalClients ? ((activeClients / totalClients) * 100).toFixed(1) : 0,
+        },
+        
+        // Site Overview
+        sites: {
+          total: totalSites,
+        },
+        
+        // Device Overview
+        devices: {
+          total: totalDevices,
+          active: activeDevices,
+          online: onlineDevices,
+          offline: offlineDevices,
+          onlinePercentage: totalDevices ? ((onlineDevices / totalDevices) * 100).toFixed(1) : 0,
+          byType: deviceTypeStats,
+          offlineDevices: offlineDevicesList,
+        },
+        
+        // Credit Management
+        credits: creditStats,
+        
+        // Operations
+        operations: {
+          todayTrips,
+          recentTrips,
+          recentDeviceActivations,
+        },
+        
+        // System Health
+        systemHealth,
+        
+        // Timestamp
+        lastUpdated: new Date(),
       },
-      operations: {
-        totalSites,
-        totalDevices,
-        activeDevices,
-        totalANPRDevices,
-        totalBiometricDevices,
-        todayTrips,
+    });
+  } catch (e) {
+    console.error("Dashboard Error:", e);
+    next(e);
+  }
+};
+
+/* ======================================================
+   Helper: Get Credit Statistics
+====================================================== */
+
+async function getCreditStatistics() {
+  try {
+    // Get ALL clients (not just those with creditBalance field)
+    const allClients = await Client.find(
+      {},
+      { 
+        companyName: 1, 
+        clientname: 1, 
+        creditBalance: 1, 
+        creditThreshold: 1,
+        isActive: 1
+      }
+    ).sort({ creditBalance: -1 });
+
+    // Filter clients that actually have creditBalance (including zero)
+    const clientsWithCredits = allClients.filter(client => 
+      client.creditBalance !== undefined && client.creditBalance !== null
+    );
+    
+    // Calculate totals
+    const totalCredits = clientsWithCredits.reduce((sum, client) => sum + (client.creditBalance || 0), 0);
+    
+    // Clients below threshold (only if threshold is set)
+    const clientsBelowThreshold = clientsWithCredits.filter(
+      client => client.creditThreshold && client.creditBalance <= client.creditThreshold
+    ).length;
+    
+    const clientsWithLowCredits = clientsWithCredits.filter(
+      client => client.creditBalance > 0 && client.creditBalance <= 100
+    ).length;
+    
+    const clientsWithNoCredits = clientsWithCredits.filter(
+      client => client.creditBalance === 0
+    ).length;
+
+    // Get recent top-ups (last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const recentTopups = await CreditLedger.find({
+      eventType: "TOPUP",
+      createdAt: { $gte: thirtyDaysAgo }
+    })
+      .populate("clientId", "companyName clientname")
+      .sort({ createdAt: -1 })
+      .limit(10);
+
+    const topupStats = await CreditLedger.aggregate([
+      {
+        $match: {
+          eventType: "TOPUP",
+          createdAt: { $gte: thirtyDaysAgo }
+        }
       },
-      deviceHealth: {
-        online: onlineANPRDevices,
-        offline: offlineANPRCount,
-        offlineDevices: offlineANPRList,
-      },
-      biometricHealth: {
-        online: onlineBiometricDevices,
-        offline: offlineBiometricCount,
-        offlineBiometricDevices: offlineBiometricList,
-      },
-      systemHealth: {
-        server: "Operational",
-        database: "Healthy",
-        connectivity:
-          offlineANPRCount > 0 || offlineBiometricCount > 0
-            ? "Degraded"
-            : "Operational",
+      {
+        $group: {
+          _id: null,
+          totalTopups: { $sum: "$credits" },
+          averageTopup: { $avg: "$credits" },
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Get top clients with highest balances (including zero balance)
+    const topClients = clientsWithCredits.slice(0, 5).map(c => ({
+      name: c.companyName || c.clientname || c._id,
+      balance: c.creditBalance || 0,
+      threshold: c.creditThreshold || 0,
+      status: (c.creditBalance || 0) <= (c.creditThreshold || 0) ? "critical" : "healthy"
+    }));
+
+    return {
+      totalCredits,
+      clientsWithCredits: clientsWithCredits.length,
+      clientsBelowThreshold,
+      clientsWithLowCredits,
+      clientsWithNoCredits,
+      recentTopups: recentTopups.map(t => ({
+        clientId: t.clientId?._id || t.clientId,
+        clientName: t.clientId?.companyName || t.clientId?.clientname,
+        amount: t.credits,
+        date: t.createdAt,
+        performedBy: t.performedBy
+      })),
+      topupStats: topupStats[0] || { totalTopups: 0, averageTopup: 0, count: 0 },
+      topClients
+    };
+  } catch (error) {
+    console.error("Error fetching credit stats:", error);
+    return {
+      totalCredits: 0,
+      clientsWithCredits: 0,
+      clientsBelowThreshold: 0,
+      clientsWithLowCredits: 0,
+      clientsWithNoCredits: 0,
+      recentTopups: [],
+      topupStats: { totalTopups: 0, averageTopup: 0, count: 0 },
+      topClients: []
+    };
+  }
+}
+
+/* ======================================================
+   Helper: Assess System Health
+====================================================== */
+function assessSystemHealth(deviceTypeStats, creditStats) {
+  const issues = [];
+  let status = "Operational";
+  
+  // Check device health
+  const totalDevices = Object.values(deviceTypeStats).reduce((sum, type) => sum + type.total, 0);
+  const offlineDevices = Object.values(deviceTypeStats).reduce((sum, type) => sum + type.offline, 0);
+  
+  if (totalDevices > 0) {
+    const offlinePercentage = (offlineDevices / totalDevices) * 100;
+    if (offlinePercentage > 30) {
+      status = "Degraded";
+      issues.push(`${offlinePercentage.toFixed(1)}% of devices are offline`);
+    } else if (offlinePercentage > 10) {
+      issues.push(`${offlinePercentage.toFixed(1)}% of devices are offline`);
+    }
+  }
+  
+  // Check credit health
+  if (creditStats.clientsBelowThreshold > 0) {
+    issues.push(`${creditStats.clientsBelowThreshold} clients have credits below threshold`);
+    if (creditStats.clientsBelowThreshold > 5) {
+      status = "Degraded";
+    }
+  }
+  
+  if (creditStats.clientsWithNoCredits > 0) {
+    issues.push(`${creditStats.clientsWithNoCredits} clients have zero credits`);
+    status = "Degraded";
+  }
+  
+  // Check specific device types
+  if (deviceTypeStats.ANPR.offline > deviceTypeStats.ANPR.total * 0.3) {
+    issues.push("High number of ANPR cameras offline");
+  }
+  
+  if (deviceTypeStats.BIOMETRIC.offline > deviceTypeStats.BIOMETRIC.total * 0.3) {
+    issues.push("High number of biometric devices offline");
+  }
+  
+  return {
+    status,
+    issues: issues.length > 0 ? issues : ["All systems operational"],
+    database: "Healthy",
+    server: "Operational",
+    lastChecked: new Date(),
+  };
+}
+
+/* ======================================================
+   GET DASHBOARD STATS (Simplified for Widgets)
+   GET /api/superadmin/dashboard/stats
+====================================================== */
+export const getDashboardStats = async (req, res, next) => {
+  try {
+    const [
+      totalClients,
+      activeClients,
+      totalSites,
+      totalDevices,
+      onlineDevices,
+      todayTrips,
+      creditStats
+    ] = await Promise.all([
+      Client.countDocuments(),
+      Client.countDocuments({ isActive: true }),
+      Site.countDocuments(),
+      Device.countDocuments(),
+      Device.countDocuments({ isOnline: true }),
+      Trip.countDocuments({
+        createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
+      }),
+      getCreditStatistics()
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        clients: {
+          total: totalClients,
+          active: activeClients,
+          activePercentage: totalClients ? ((activeClients / totalClients) * 100).toFixed(1) : 0,
+        },
+        sites: { total: totalSites },
+        devices: {
+          total: totalDevices,
+          online: onlineDevices,
+          onlinePercentage: totalDevices ? ((onlineDevices / totalDevices) * 100).toFixed(1) : 0,
+        },
+        operations: { todayTrips },
+        credits: {
+          total: creditStats.totalCredits,
+          clientsWithCredits: creditStats.clientsWithCredits,
+          clientsBelowThreshold: creditStats.clientsBelowThreshold,
+        },
       },
     });
   } catch (e) {
@@ -110,7 +466,144 @@ export const dashboardOverview = async (req, res, next) => {
   }
 };
 
+/* ======================================================
+   GET DEVICE HEALTH DETAILS
+   GET /api/superadmin/dashboard/device-health
+====================================================== */
+export const getDeviceHealthDetails = async (req, res, next) => {
+  try {
+    const deviceTypes = ["ANPR", "TOP_CAMERA", "BIOMETRIC", "OVERVIEW"];
+    
+    const deviceHealth = {};
+    
+    for (const type of deviceTypes) {
+      const [total, online, offline, enabled] = await Promise.all([
+        Device.countDocuments({ devicetype: type }),
+        Device.countDocuments({ devicetype: type, isOnline: true }),
+        Device.countDocuments({ devicetype: type, isOnline: false }),
+        Device.countDocuments({ devicetype: type, isEnabled: true }),
+      ]);
+      
+      deviceHealth[type] = {
+        total,
+        online,
+        offline,
+        enabled,
+        healthPercentage: total ? ((online / total) * 100).toFixed(1) : 100,
+      };
+    }
+    
+    // Get devices that need attention
+    const criticalDevices = await Device.find({
+      $or: [
+        { isOnline: false, isEnabled: true },
+        { lastActive: { $lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } } // Inactive for 7+ days
+      ]
+    })
+      .populate("siteId", "name")
+      .populate("clientId", "companyName")
+      .sort({ lastActive: 1 })
+      .limit(20);
+    
+    res.json({
+      success: true,
+      data: {
+        byType: deviceHealth,
+        criticalDevices: criticalDevices.map(d => ({
+          id: d._id,
+          name: d.deviceName,
+          serialNo: d.serialNo,
+          type: d.devicetype,
+          site: d.siteId?.name,
+          client: d.clientId?.companyName,
+          status: d.isOnline ? "online" : "offline",
+          lastActive: d.lastActive,
+        })),
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+};
 
+/* ======================================================
+   GET CREDIT DASHBOARD
+   GET /api/superadmin/dashboard/credits
+====================================================== */
+export const getCreditDashboard = async (req, res, next) => {
+  try {
+    const creditStats = await getCreditStatistics();
+    
+    // Get clients with critical credit status
+    const criticalClients = await Client.find({
+      $expr: { $lte: ["$creditBalance", "$creditThreshold"] }
+    })
+      .select("companyName clientname creditBalance creditThreshold packageEnd isActive")
+      .sort({ creditBalance: 1 })
+      .limit(20);
+    
+    // Get recent transactions
+    const recentTransactions = await CreditLedger.find()
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .populate("clientId", "companyName clientname")
+      .populate("performedBy", "name email");
+    
+    // Calculate trends (last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const dailyTopups = await CreditLedger.aggregate([
+      {
+        $match: {
+          eventType: "TOPUP",
+          createdAt: { $gte: sevenDaysAgo }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
+            day: { $dayOfMonth: "$createdAt" }
+          },
+          total: { $sum: "$credits" },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } }
+    ]);
+    
+    res.json({
+      success: true,
+      data: {
+        overview: {
+          totalCredits: creditStats.totalCredits,
+          clientsWithCredits: creditStats.clientsWithCredits,
+          averageBalance: creditStats.clientsWithCredits ? 
+            (creditStats.totalCredits / creditStats.clientsWithCredits).toFixed(2) : 0,
+        },
+        alerts: {
+          belowThreshold: creditStats.clientsBelowThreshold,
+          zeroBalance: creditStats.clientsWithNoCredits,
+          lowBalance: creditStats.clientsWithLowCredits,
+        },
+        criticalClients: criticalClients.map(c => ({
+          id: c._id,
+          name: c.companyName || c.clientname,
+          balance: c.creditBalance,
+          threshold: c.creditThreshold,
+          status: c.creditBalance === 0 ? "critical" : "warning",
+        })),
+        recentTransactions,
+        trends: dailyTopups,
+        topupStats: creditStats.topupStats,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+};
 /* ======================================================
    ANALYTICS - FIXED VERSION
 ====================================================== */

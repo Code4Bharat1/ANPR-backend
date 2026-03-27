@@ -6,6 +6,7 @@ import {
   topupCredits,
   getLedger,
   updateThreshold,
+  getCreditDashboardData,
 } from "../controllers/credit.controller.js";
 
 const router = express.Router();
@@ -18,7 +19,12 @@ router.get(
   authorizeRoles("client", "superadmin", "project_manager"),
   getBalance
 );
-
+router.get(
+  "/dashboard",
+  verifyAccessToken,
+  authorizeRoles("superadmin"),
+  getCreditDashboardData
+);
 // POST /api/credits/topup  — superadmin only
 router.post(
   "/topup",

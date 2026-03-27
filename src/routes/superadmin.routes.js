@@ -14,7 +14,13 @@ import { topupCredits, getBalance, getLedger, updateThreshold } from "../control
 const router = express.Router();
 const guard = [verifyAccessToken, authorizeRoles("superadmin")];
 
-router.get("/dashboard", ...guard, SA.dashboardOverview);
+// router.get("/dashboard", ...guard, SA.dashboardOverview);
+// Dashboard Routes
+router.get("/dashboard",  ...guard, SA.dashboardOverview);
+router.get("/dashboard/stats",  ...guard, SA.getDashboardStats);
+router.get("/dashboard/device-health",  ...guard, SA. getDeviceHealthDetails);
+router.get("/dashboard/credits",  ...guard, SA.getCreditDashboard);
+
 // Analytics
 router.get("/analytics/summary", ...guard, SA.analyticsSummary);
 router.get("/analytics/trips", ...guard, SA.tripVolumeDaily);
