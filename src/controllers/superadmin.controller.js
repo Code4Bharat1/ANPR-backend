@@ -306,7 +306,7 @@ async function getCreditStatistics() {
       .sort({ createdAt: -1 })
       .limit(10);
 
-    const topupStats = await CreditLedger.aggregate([
+    const topupStats = await CreditLedgerModel.aggregate([
       {
         $match: {
           eventType: "TOPUP",
@@ -909,23 +909,91 @@ export const revenueAnalytics = async (req, res, next) => {
 
 
 
-
 /* ======================================================
-   AUDIT LOGS
+   AUDIT LOGS - FIXED VERSION
 ====================================================== */
 export const getAuditLogs = async (req, res, next) => {
   try {
-    const { days = 7 } = req.query;
-    const from = new Date(Date.now() - Number(days) * 86400000);
-
-    const logs = await AuditLog.find({
-      createdAt: { $gte: from },
-    })
-      .sort({ createdAt: -1 })
-      .limit(50);
-
-    res.json(logs);
+    // Get pagination parameters from query
+    const { 
+      page = 1, 
+      limit = 100, 
+      days, 
+      from: fromDate,
+      to: toDate,
+      action,
+      module,
+      role,
+      userId 
+    } = req.query;
+    
+    // Build filter object
+    const filter = {};
+    
+    // Date range filtering (optional)
+    if (fromDate || toDate) {
+      filter.createdAt = {};
+      if (fromDate) {
+        filter.createdAt.$gte = new Date(fromDate);
+      }
+      if (toDate) {
+        filter.createdAt.$lte = new Date(toDate);
+      }
+    } 
+    // If days parameter is provided, use it (default: no filter - get all)
+    else if (days !== undefined && days !== null) {
+      const daysNum = Number(days);
+      if (!isNaN(daysNum) && daysNum > 0) {
+        const from = new Date(Date.now() - daysNum * 86400000);
+        filter.createdAt = { $gte: from };
+      }
+    }
+    // No date filter - get ALL logs (remove the days default)
+    // So we don't add any date filter
+    
+    // Additional filters
+    if (action) filter.action = action;
+    if (module) filter.module = module;
+    if (role) filter.role = role;
+    if (userId) filter.userId = userId;
+    
+    // Calculate skip for pagination
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(1000, Math.max(1, parseInt(limit))); // Max 1000 logs per request
+    const skip = (pageNum - 1) * limitNum;
+    
+    // Execute queries in parallel
+    const [logs, totalCount] = await Promise.all([
+      AuditLog.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      AuditLog.countDocuments(filter)
+    ]);
+    
+    // Format the logs to ensure proper date handling
+    const formattedLogs = logs.map(log => ({
+      ...log,
+      _id: log._id,
+      createdAt: log.createdAt,
+      updatedAt: log.updatedAt
+    }));
+    
+    res.json({
+      success: true,
+      data: formattedLogs,
+      pagination: {
+        currentPage: pageNum,
+        totalPages: Math.ceil(totalCount / limitNum),
+        totalItems: totalCount,
+        itemsPerPage: limitNum,
+        hasNextPage: pageNum * limitNum < totalCount,
+        hasPrevPage: pageNum > 1
+      }
+    });
   } catch (e) {
+    console.error('Error fetching audit logs:', e);
     next(e);
   }
 };
