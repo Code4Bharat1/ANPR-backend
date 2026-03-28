@@ -12,6 +12,14 @@ import ClientModel from "../models/Client.model.js";
 import Vehicle from '../models/Vehicle.model.js';
 import mongoose from 'mongoose';
 
+function ProjectManagerModel(req) { return req?.db ? req.db.model("ProjectManager") : ProjectManager; }
+function TripModel(req) { return req?.db ? req.db.model("Trip") : Trip; }
+function SiteModel(req) { return req?.db ? req.db.model("Site") : Site; }
+function VendorModel(req) { return req?.db ? req.db.model("Vendor") : Vendor; }
+function SupervisorModel(req) { return req?.db ? req.db.model("Supervisor") : Supervisor; }
+function VehicleModel(req) { return req?.db ? req.db.model("Vehicle") : Vehicle; }
+function DeviceModelFn(req) { return req?.db ? req.db.model("Device") : DeviceModel; }
+
 
 /**
  * Admin → Create Project Manager
@@ -37,7 +45,7 @@ export const createProjectManager = async (req, res, next) => {
       return res.status(400).json({ message: "Required fields missing" });
     }
 
-    const pm = await ProjectManager.create({
+    const pm = await ProjectManagerModel(req).create({
       name,
       email,
       mobile,
@@ -70,7 +78,7 @@ export const createProjectManager = async (req, res, next) => {
  */
 export const listProjectManagers = async (req, res, next) => {
   try {
-    const pms = await ProjectManager.find({
+    const pms = await ProjectManagerModel(req).find({
       clientId: req.user.clientId,
     })
       .populate("assignedSites", "name location")
@@ -90,10 +98,10 @@ export const updateProjectManager = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const old = await ProjectManager.findById(id);
+    const old = await ProjectManagerModel(req).findById(id);
     if (!old) return res.status(404).json({ message: "PM not found" });
 
-    const updated = await ProjectManager.findByIdAndUpdate(
+    const updated = await ProjectManagerModel(req).findByIdAndUpdate(
       id,
       req.body,
       { new: true }
@@ -118,7 +126,7 @@ export const updateProjectManager = async (req, res, next) => {
  */
 export const toggleProjectManager = async (req, res, next) => {
   try {
-    const pm = await ProjectManager.findById(req.params.id);
+    const pm = await ProjectManagerModel(req).findById(req.params.id);
     if (!pm) return res.status(404).json({ message: "PM not found" });
 
     pm.isActive = !pm.isActive;
@@ -149,7 +157,7 @@ export const getDashboardStats = async (req, res) => {
     /* =========================
        1️⃣ GET PM WITH SITES
     ========================= */
-    const pm = await ProjectManager.findById(projectManagerId)
+    const pm = await ProjectManagerModel(req).findById(projectManagerId)
       .populate({
         path: "assignedSites",
         select: "name siteId status",
@@ -405,7 +413,7 @@ export const createSupervisor = async (req, res) => {
     /* =========================
        1️⃣ VERIFY PM
     ========================= */
-    const pm = await ProjectManager.findById(req.user.id)
+    const pm = await ProjectManagerModel(req).findById(req.user.id)
       .select("assignedSites clientId")
       .lean();
 
@@ -442,7 +450,7 @@ export const createSupervisor = async (req, res) => {
     /* =========================
        3️⃣ COUNT SUPERVISORS (CLIENT LEVEL)
     ========================= */
-    const existingSupervisors = await Supervisor.countDocuments({
+    const existingSupervisors = await SupervisorModel(req).countDocuments({
       siteId: { $in: pm.assignedSites }
     });
 
@@ -455,7 +463,7 @@ export const createSupervisor = async (req, res) => {
     /* =========================
        4️⃣ CREATE SUPERVISOR
     ========================= */
-    const supervisor = await Supervisor.create({
+    const supervisor = await SupervisorModel(req).create({
       name,
       email: email.toLowerCase().trim(),
       mobile,
@@ -469,12 +477,12 @@ export const createSupervisor = async (req, res) => {
     /* =========================
        5️⃣ UPDATE SITE & PM
     ========================= */
-    await Site.findByIdAndUpdate(
+    await SiteModel(req).findByIdAndUpdate(
       siteId,
       { $addToSet: { supervisors: supervisor._id } }
     );
 
-    await ProjectManager.findByIdAndUpdate(
+    await ProjectManagerModel(req).findByIdAndUpdate(
       req.user.id,
       { $addToSet: { supervisors: supervisor._id } }
     );
@@ -504,7 +512,7 @@ export const updateSupervisor = async (req, res) => {
     const pmId = req.user.id;
 
     // Find the supervisor
-    const supervisor = await Supervisor.findById(supervisorId);
+    const supervisor = await SupervisorModel(req).findById(supervisorId);
     
     if (!supervisor) {
       return res.status(404).json({ message: "Supervisor not found" });
@@ -519,7 +527,7 @@ export const updateSupervisor = async (req, res) => {
 
     // If changing site, validate the new site belongs to PM
     if (siteId && siteId !== supervisor.siteId.toString()) {
-      const pm = await ProjectManager.findById(pmId).select("assignedSites").lean();
+      const pm = await ProjectManagerModel(req).findById(pmId).select("assignedSites").lean();
       
       if (!pm?.assignedSites?.some(id => id.toString() === siteId)) {
         return res.status(403).json({
@@ -559,7 +567,7 @@ export const getAllSupervisors = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     
-    const pm = await ProjectManager
+    const pm = await ProjectManagerModel(req)
       .findOne({ _id : userId })
       .select("_id");
 
@@ -567,9 +575,7 @@ export const getAllSupervisors = async (req, res) => {
       return res.json("PM not found");
     }
 
-    
-
-    const supervisors = await Supervisor
+    const supervisors = await SupervisorModel(req)
       .find({ projectManagerId: pm._id })
       .populate("siteId", "name")
       .populate("projectManagerId", "name")
@@ -591,7 +597,7 @@ export const assignSiteToSupervisor = async (req, res) => {
     const { siteId } = req.body;
 
     // 🔐 Validate site belongs to PM
-    const pm = await ProjectManager.findById(req.user.id)
+    const pm = await ProjectManagerModel(req).findById(req.user.id)
       .select("assignedSites")
       .lean();
 
@@ -599,7 +605,7 @@ export const assignSiteToSupervisor = async (req, res) => {
       return res.status(403).json({ message: "Access denied to this site" });
     }
 
-    const supervisor = await Supervisor.findById(req.params.id);
+    const supervisor = await SupervisorModel(req).findById(req.params.id);
     if (!supervisor) {
       return res.status(404).json({ message: "Supervisor not found" });
     }
@@ -617,7 +623,7 @@ export const assignSiteToSupervisor = async (req, res) => {
 };
 export const toggleSupervisorStatus = async (req, res) => {
   try {
-    const supervisor = await Supervisor.findById(req.params.id);
+    const supervisor = await SupervisorModel(req).findById(req.params.id);
     if (!supervisor) {
       return res.status(404).json({ message: "Supervisor not found" });
     }
@@ -639,19 +645,19 @@ export const deleteSupervisor = async (req, res, next) => {
     const { id } = req.params;
 
     // 1️⃣ Remove supervisor from sites
-    await Site.updateMany(
+    await SiteModel(req).updateMany(
       { supervisors: id },
       { $pull: { supervisors: id } }
     );
 
     // 2️⃣ Remove supervisor from trips
-    await Trip.updateMany(
+    await TripModel(req).updateMany(
       { createdBy: id },
       { $set: { createdBy: null } }
     );
 
     // 3️⃣ Delete supervisor
-    await Supervisor.findByIdAndDelete(id);
+    await SupervisorModel(req).findByIdAndDelete(id);
 
     res.json({ message: "Supervisor deleted successfully" });
   } catch (err) {
@@ -676,7 +682,7 @@ export const getLiveVehicles = async (req, res) => {
       query.siteId = req.query.siteId;
     }
 
-    const liveVehicles = await Vehicle.find(query)
+    const liveVehicles = await VehicleModel(req).find(query)
       .populate("siteId", "name");
 
     res.json(liveVehicles);
@@ -704,16 +710,16 @@ export const createVendor = async (req, res) => {
     }
 
     // Check if vendor already exists
-    const existingVendor = await Vendor.findOne({ 
+    const existingVendor = await VendorModel(req).findOne({ 
       email,
-      clientId: req.user.clientId  // Check within same client only
+      clientId: req.user.clientId
     });
     
     if (existingVendor) {
       return res.status(400).json({ message: "Vendor with this email already exists" });
     }
 
-    const vendor = new Vendor({
+    const vendor = new (VendorModel(req))({
       name,
       email,
       phone,
@@ -743,7 +749,7 @@ export const getVendors = async (req, res) => {
     const clientId = req.user.clientId;
 
     // 🔹 Vendors
-    const vendors = await Vendor.find({ clientId })
+    const vendors = await VendorModel(req).find({ clientId })
       .populate("assignedSites", "name location")
       .populate("projectManagerId", "name email")
       .sort({ createdAt: -1 })
@@ -757,7 +763,7 @@ export const getVendors = async (req, res) => {
     todayStart.setHours(0, 0, 0, 0);
 
     // 🔹 Site-wise aggregation
-    const tripStats = await Trip.aggregate([
+    const tripStats = await TripModel(req).aggregate([
       {
         $match: {
           vendorId: { $in: vendorIds },
@@ -841,7 +847,7 @@ export const updateVendor = async (req, res) => {
     }
 
     // Find vendor
-    const vendor = await Vendor.findById(id);
+    const vendor = await VendorModel(req).findById(id);
     if (!vendor) {
       return res.status(404).json({ message: "Vendor not found" });
     }
@@ -857,10 +863,10 @@ export const updateVendor = async (req, res) => {
 
     // Check email uniqueness (only if email is being changed)
     if (email && email !== vendor.email) {
-      const existingVendor = await Vendor.findOne({ 
+      const existingVendor = await VendorModel(req).findOne({ 
         email, 
         clientId: req.user.clientId,
-        _id: { $ne: id }  // Exclude current vendor
+        _id: { $ne: id }
       });
       
       if (existingVendor) {
@@ -869,7 +875,7 @@ export const updateVendor = async (req, res) => {
     }
 
     // Update vendor
-    const updatedVendor = await Vendor.findByIdAndUpdate(
+    const updatedVendor = await VendorModel(req).findByIdAndUpdate(
       id,
       {
         name: name || vendor.name,
@@ -898,7 +904,7 @@ export const toggleVendorStatus = async (req, res) => {
       return res.status(400).json({ message: "Invalid vendor ID" });
     }
 
-    const vendor = await Vendor.findById(id);
+    const vendor = await VendorModel(req).findById(id);
     if (!vendor) {
       return res.status(404).json({ message: "Vendor not found" });
     }
@@ -931,7 +937,7 @@ export const deleteVendor = async (req, res) => {
       return res.status(400).json({ message: "Invalid vendor ID" });
     }
 
-    const vendor = await Vendor.findById(id);
+    const vendor = await VendorModel(req).findById(id);
     if (!vendor) {
       return res.status(404).json({ message: "Vendor not found" });
     }
@@ -959,7 +965,7 @@ export const deleteVendor = async (req, res) => {
 ====================================================== */
 export const getProfile = async (req, res) => {
   try {
-    const pm = await ProjectManager.findById(req.user.id)
+    const pm = await ProjectManagerModel(req).findById(req.user.id)
       .select("-password")
       .populate("assignedSites", "name");
 
@@ -998,7 +1004,7 @@ export const updateProfile = async (req, res) => {
   try {
     const { fullName, email, phone, location } = req.body;
 
-    const pm = await ProjectManager.findById(req.user.id);
+    const pm = await ProjectManagerModel(req).findById(req.user.id);
     if (!pm) {
       return res.status(404).json({
         message: "Profile not found",
@@ -1035,7 +1041,7 @@ export const updateProfile = async (req, res) => {
 
 export const getProfileStats = async (req, res) => {
   try {
-    const pm = await ProjectManager.findById(req.user.id)
+    const pm = await ProjectManagerModel(req).findById(req.user.id)
       .populate('assignedSites');
 
     if (!pm) {
@@ -1091,7 +1097,7 @@ export const getanalytics = async (req, res, next) => {
     let siteFilter = {};
     
     if (req.user.role === 'project_manager') {
-      const projectManager = await ProjectManager.findOne({ 
+      const projectManager = await ProjectManagerModel(req).findOne({ 
         email: req.user.email 
       }).populate('assignedSites', '_id');
       
@@ -1148,7 +1154,7 @@ export const getanalytics = async (req, res, next) => {
 
     // console.log('🔍 Analytics query:', JSON.stringify(query, null, 2));
 
-    const trips = await Trip.find(query)
+    const trips = await TripModel(req).find(query)
       .populate('vendorId', 'name')
       .populate('siteId', 'name')
       .lean();
@@ -1371,7 +1377,7 @@ export const getanalytics = async (req, res, next) => {
 ====================================================== */
 export const getSettings = async (req, res) => {
   try {
-    const pm = await ProjectManager.findById(req.user.id).select("settings");
+    const pm = await ProjectManagerModel(req).findById(req.user.id).select("settings");
 
     if (!pm) {
       return res.status(404).json({ message: "Settings not found" });
@@ -1393,7 +1399,7 @@ export const updateSettings = async (req, res) => {
   try {
     const { preferences } = req.body;
 
-    const pm = await ProjectManager.findById(req.user.id);
+    const pm = await ProjectManagerModel(req).findById(req.user.id);
     if (!pm) {
       return res.status(404).json({
         message: "Project Manager not found",

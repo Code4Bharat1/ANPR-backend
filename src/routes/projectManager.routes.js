@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { verifyAccessToken } from '../middlewares/auth.middleware.js';
+import { verifyAccessToken, resolveTenantDB } from '../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../middlewares/role.middleware.js';
 import {
   createProjectManager,
@@ -33,6 +33,8 @@ import { addVehicleToSite, getMySites, getPMSiteDetails, getSiteActivity, getSit
 import { exportReportsToExcelPM, getReportStatsPM, getTripReportsPM } from '../controllers/report.controller.js';
 
 const router = express.Router();
+
+router.use(verifyAccessToken, resolveTenantDB);
 
 router.post(
   "/",

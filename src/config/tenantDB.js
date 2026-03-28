@@ -105,6 +105,14 @@ export function invalidateTenantCache(clientId) {
 }
 
 /**
+ * Returns all active dedicated DB connections (used by cron jobs).
+ * @returns {mongoose.Connection[]}
+ */
+export function getAllConnections() {
+  return [...pool.values()].filter(conn => conn.readyState === 1);
+}
+
+/**
  * Gracefully close all dedicated connections (call on server shutdown).
  */
 export async function closeAllConnections() {

@@ -12,6 +12,13 @@ import ExcelJS from "exceljs";
 import ClientModel from "../models/Client.model.js";
 import mongoose from "mongoose";
 
+function SupervisorModel(req) { return req?.db ? req.db.model("Supervisor") : Supervisor; }
+function ProjectManagerModel(req) { return req?.db ? req.db.model("ProjectManager") : ProjectManager; }
+function TripModel(req) { return req?.db ? req.db.model("Trip") : Trip; }
+function SiteModel(req) { return req?.db ? req.db.model("Site") : Site; }
+function VendorModel(req) { return req?.db ? req.db.model("Vendor") : Vendor; }
+function VehicleModel(req) { return req?.db ? req.db.model("Vehicle") : Vehicle; }
+
 /**
  * CREATE SUPERVISOR
  */
@@ -41,12 +48,12 @@ export const createSupervisor = async (req, res, next) => {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    const pm = await ProjectManager.findById(projectManagerId).select("clientId");
+    const pm = await ProjectManagerModel(req).findById(projectManagerId).select("clientId");
     if (!pm) {
       return res.status(404).json({ message: "Project Manager not found" });
     }
 
-    const existingSupervisor = await Supervisor.findOne({
+    const existingSupervisor = await SupervisorModel(req).findOne({
       email: normalizedEmail,
     });
     if (existingSupervisor) {
@@ -57,7 +64,7 @@ export const createSupervisor = async (req, res, next) => {
 
     let site = null;
     if (siteId) {
-      site = await Site.findOne({
+      site = await SiteModel(req).findOne({
         _id: siteId,
         clientId: pm.clientId,
       });
@@ -69,7 +76,7 @@ export const createSupervisor = async (req, res, next) => {
       }
     }
 
-    const supervisor = await Supervisor.create({
+    const supervisor = await SupervisorModel(req).create({
       name,
       email: normalizedEmail,
       mobile,
@@ -83,13 +90,13 @@ export const createSupervisor = async (req, res, next) => {
       createdBy: req.user.id,
     });
 
-    await ProjectManager.findByIdAndUpdate(
+    await ProjectManagerModel(req).findByIdAndUpdate(
       projectManagerId,
       { $addToSet: { supervisors: supervisor._id } }
     );
 
     if (site) {
-      await Site.findByIdAndUpdate(site._id, {
+      await SiteModel(req).findByIdAndUpdate(site._id, {
         $addToSet: { supervisors: supervisor._id },
       });
     }
@@ -136,7 +143,7 @@ export const getAllSupervisors = async (req, res, next) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    const supervisors = await Supervisor.find(filter)
+    const supervisors = await SupervisorModel(req).find(filter)
       .populate("siteId", "name location")
       .populate("projectManagerId", "name email")
       .select("-password")
@@ -164,7 +171,7 @@ export const updateSupervisor = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid Supervisor ID" });
     }
 
-    const supervisor = await Supervisor.findById(id);
+    const supervisor = await SupervisorModel(req).findById(id);
     if (!supervisor) {
       return res.status(404).json({ message: "Supervisor not found" });
     }
@@ -257,7 +264,7 @@ export const assignSite = async (req, res, next) => {
       return res.status(400).json({ message: "Site ID is required" });
     }
 
-    const supervisor = await Supervisor.findById(supervisorId);
+    const supervisor = await SupervisorModel(req).findById(supervisorId);
     if (!supervisor) {
       return res.status(404).json({ message: "Supervisor not found" });
     }
@@ -271,7 +278,7 @@ export const assignSite = async (req, res, next) => {
 
     // Remove from old site
     if (supervisor.siteId) {
-      await Site.findByIdAndUpdate(supervisor.siteId, {
+      await SiteModel(req).findByIdAndUpdate(supervisor.siteId, {
         $pull: { supervisors: supervisor._id },
       });
     }
@@ -283,7 +290,7 @@ export const assignSite = async (req, res, next) => {
     await supervisor.save();
 
     // Add to new site
-    await Site.findByIdAndUpdate(siteId, {
+    await SiteModel(req).findByIdAndUpdate(siteId, {
       $addToSet: { supervisors: supervisor._id },
     });
 
@@ -310,7 +317,7 @@ export const assignSite = async (req, res, next) => {
  */
 export const toggleSupervisor = async (req, res, next) => {
   try {
-    const supervisor = await Supervisor.findById(req.params.id);
+    const supervisor = await SupervisorModel(req).findById(req.params.id);
     if (!supervisor) {
       return res.status(404).json({ message: "Supervisor not found" });
     }
@@ -492,7 +499,7 @@ export const getActiveVehicles = async (req, res, next) => {
 
     const OVERSTAY_MINUTES = 240;
 
-    const trips = await Trip.find({
+    const trips = await TripModel(req).find({
       siteId: new mongoose.Types.ObjectId(siteId),
       status: { $in: ["INSIDE", "active"] },
     })
@@ -610,7 +617,7 @@ export const supervisorAnalytics = async (req, res, next) => {
     todayStart.setHours(0, 0, 0, 0);
 
 
-    const todayTrips = await Trip.countDocuments({
+    const todayTrips = await TripModel(req).countDocuments({
       siteId,
       entryAt: { $gte: todayStart },
     });
@@ -618,7 +625,7 @@ export const supervisorAnalytics = async (req, res, next) => {
     const yesterdayStart = new Date(todayStart);
     yesterdayStart.setDate(yesterdayStart.getDate() - 1);
 
-    const yesterdayTrips = await Trip.countDocuments({
+    const yesterdayTrips = await TripModel(req).countDocuments({
       siteId,
       entryAt: { $gte: yesterdayStart, $lt: todayStart },
     });
@@ -628,24 +635,24 @@ export const supervisorAnalytics = async (req, res, next) => {
         ? 100
         : Math.round(((todayTrips - yesterdayTrips) / yesterdayTrips) * 100);
 
-    const weekTrips = await Trip.countDocuments({
+    const weekTrips = await TripModel(req).countDocuments({
       siteId,
       entryAt: { $gte: startDate },
     });
 
     const totalEntries = weekTrips;
-    const totalExits = await Trip.countDocuments({
+    const totalExits = await TripModel(req).countDocuments({
       siteId,
       exitAt: { $gte: startDate },
     });
 
-    const activeVehicles = await Trip.countDocuments({
+    const activeVehicles = await TripModel(req).countDocuments({
       siteId,
       status: "INSIDE",
     });
 
     // Avg duration
-    const completedTrips = await Trip.find({
+    const completedTrips = await TripModel(req).find({
       siteId,
       exitAt: { $ne: null },
       entryAt: { $gte: startDate },
@@ -666,7 +673,7 @@ export const supervisorAnalytics = async (req, res, next) => {
     // ============================================
     // FIX 1: DAILY TRENDS - Show all 7 days
     // ============================================
-    const dailyTrends = await Trip.aggregate([
+    const dailyTrends = await TripModel(req).aggregate([
       {
         $match: {
           siteId: new mongoose.Types.ObjectId(siteId),
@@ -710,7 +717,7 @@ export const supervisorAnalytics = async (req, res, next) => {
     // ============================================
     // HOURLY TRENDS (unchanged but optimized)
     // ============================================
-    const hourlyTrends = await Trip.aggregate([
+    const hourlyTrends = await TripModel(req).aggregate([
       {
         $match: {
           siteId: new mongoose.Types.ObjectId(siteId),
@@ -763,7 +770,7 @@ export const supervisorAnalytics = async (req, res, next) => {
     // ============================================
     // FIX 2: VEHICLE TYPES - Add actual data
     // ============================================
-    const vehicleTypesData = await Trip.aggregate([
+    const vehicleTypesData = await TripModel(req).aggregate([
       {
         $match: {
           siteId: new mongoose.Types.ObjectId(siteId),
@@ -793,7 +800,7 @@ export const supervisorAnalytics = async (req, res, next) => {
     // ============================================
     // FIX 3: TOP VENDORS - Populate vendor names
     // ============================================
-    const topVendorsData = await Trip.aggregate([
+    const topVendorsData = await TripModel(req).aggregate([
       {
         $match: {
           siteId: new mongoose.Types.ObjectId(siteId),
@@ -864,7 +871,7 @@ export const supervisorAnalytics = async (req, res, next) => {
     const lastPeriodStart = new Date(startDate);
     lastPeriodStart.setDate(lastPeriodStart.getDate() - 7);
 
-    const lastPeriodTrips = await Trip.find({
+    const lastPeriodTrips = await TripModel(req).find({
       siteId,
       exitAt: { $ne: null },
       entryAt: { $gte: lastPeriodStart, $lt: startDate },
@@ -919,7 +926,7 @@ export const getMyAssignedSite = async (req, res, next) => {
       });
     }
 
-    const site = await Site.findById(siteId)
+    const site = await SiteModel(req).findById(siteId)
       .populate("clientId", "name email")
 
 
@@ -970,7 +977,7 @@ export const exportAnalyticsReport = async (req, res, next) => {
     const endDate = new Date();
 
     // Get trips for the selected period
-    const trips = await Trip.find({
+    const trips = await TripModel(req).find({
       siteId,
       entryAt: { $gte: startDate, $lte: endDate },
     })
@@ -980,7 +987,7 @@ export const exportAnalyticsReport = async (req, res, next) => {
       .lean();
 
     // Get site info
-    const site = await Site.findById(siteId).lean();
+    const site = await SiteModel(req).findById(siteId).lean();
 
     // Create Excel workbook
     const workbook = new ExcelJS.Workbook();
@@ -1058,13 +1065,13 @@ export const getSupervisorVendors = async (req, res) => {
     //   supervisors: req.user.id 
     // }).select('_id');
 
-    const assignedSite = await Supervisor.findById(req.user.id).select('siteId');
+    const assignedSite = await SupervisorModel(req).findById(req.user.id).select('siteId');
     // console.log(assignedSite);
 
     // const siteIds = assignedSites.map(site => site._id);
 
     // Get vendors assigned to these sites
-    const vendors = await Vendor.find({
+    const vendors = await VendorModel(req).find({
       assignedSites: { $in: assignedSite.siteId },
       isActive: true
     })

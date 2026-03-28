@@ -14,10 +14,19 @@ import { sendToAgentAndWait } from "../agent/agent.socket.js";
 import BarrierEvent from "../models/BarrierEvent.model.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 import Site from "../models/Site.model.js";
+
+function BarrierEventModel(req) {
+  return req?.db ? req.db.model("BarrierEvent") : BarrierEvent;
+}
+function SiteModel(req) {
+  return req?.db ? req.db.model("Site") : Site;
+}
+
 /* ======================================================
    HELPER — persist a BarrierEvent after every command
 ====================================================== */
 async function persistBarrierEvent({
+  db,
   siteId,
   clientId,
   tripId = null,
@@ -28,7 +37,8 @@ async function persistBarrierEvent({
   errorMessage = null,
 }) {
   try {
-    await BarrierEvent.create({
+    const Model = db ? db.model("BarrierEvent") : BarrierEvent;
+    await Model.create({
       siteId,
       clientId,
       tripId,
@@ -72,6 +82,7 @@ export async function openBarrier(req, res) {
 
   // FR-5.3: persist regardless of outcome
   await persistBarrierEvent({
+    db: req?.db,
     siteId,
     clientId,
     tripId,
@@ -134,6 +145,7 @@ export async function closeBarrier(req, res) {
   }
 
   await persistBarrierEvent({
+    db: req?.db,
     siteId,
     clientId,
     action: "CLOSE",
@@ -181,7 +193,7 @@ export async function getBarrierStatus(req, res) {
       return res.status(400).json({ success: false, message: "siteId required" });
     }
 
-    const last = await BarrierEvent.findOne({ siteId })
+    const last = await BarrierEventModel(req).findOne({ siteId })
       .sort({ createdAt: -1 })
       .lean();
 
@@ -216,7 +228,7 @@ export async function getAllBarrierStatus(req, res) {
     }
 
     // Client ke saare sites fetch karo
-    const sites = await Site.find({ clientId }).select('_id name').lean();
+    const sites = await SiteModel(req).find({ clientId }).select('_id name').lean();
 
     if (!sites.length) {
       return res.json({ success: true, data: [] });
@@ -224,8 +236,7 @@ export async function getAllBarrierStatus(req, res) {
 
     const siteIds = sites.map(s => s._id);
 
-    // Har site ka latest BarrierEvent ek query mein nikalo
-    const latestEvents = await BarrierEvent.aggregate([
+    const latestEvents = await BarrierEventModel(req).aggregate([
       { $match: { siteId: { $in: siteIds } } },
       { $sort: { createdAt: -1 } },
       {
@@ -271,6 +282,7 @@ export async function getAllBarrierStatus(req, res) {
    Non-blocking — never throws; always persists the outcome.
 ====================================================== */
 export async function triggerBarrierForTrip({
+  db,
   siteId,
   clientId,
   tripId,
@@ -295,6 +307,7 @@ export async function triggerBarrierForTrip({
   }
 
   await persistBarrierEvent({
+    db,
     siteId,
     clientId,
     tripId,

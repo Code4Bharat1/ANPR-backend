@@ -50,6 +50,7 @@ router.patch(
 router.get(
   "/dashboard",
   verifyAccessToken,
+  resolveTenantDB,
   authorizeRoles("supervisor"),
   supervisorDashboard
 );
@@ -57,24 +58,28 @@ router.get(
 router.get(
   "/vehicles/active",
   verifyAccessToken,
+  resolveTenantDB,
   authorizeRoles("supervisor"),
   getActiveVehicles
 );
 router.get(
   "/trips",
   verifyAccessToken,
+  resolveTenantDB,
   authorizeRoles("supervisor"),
   getTripHistory
 );
 router.get(
   "/trips/export",
   verifyAccessToken,
+  resolveTenantDB,
   authorizeRoles("supervisor"),
   exportTripHistory
 );
 router.get(
   "/analytics",
   verifyAccessToken,
+  resolveTenantDB,
   authorizeRoles("supervisor"),
   supervisorAnalytics
 );
@@ -115,22 +120,19 @@ router.post(
 router.get(
   "/my-site",
   verifyAccessToken,
+  resolveTenantDB,
   authorizeRoles("supervisor"),
   getMyAssignedSite
 );
 
-
-
-// Add this route with the other supervisor routes
 router.get(
   "/analytics/export",
   verifyAccessToken,
+  resolveTenantDB,
   authorizeRoles("supervisor"),
   exportAnalyticsReport
 );
 
-
-// backend routes (supervisorRoutes.js)
-router.get('/vendors', verifyAccessToken, authorizeRoles('supervisor'), getSupervisorVendors);
+router.get('/vendors', verifyAccessToken, resolveTenantDB, authorizeRoles('supervisor'), getSupervisorVendors);
 
 export default router;

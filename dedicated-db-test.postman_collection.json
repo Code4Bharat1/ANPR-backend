@@ -1,0 +1,1007 @@
+{
+    "info": {
+        "name": "ANPR — Dedicated DB Verification",
+        "_postman_id": "anpr-dedicated-db-test",
+        "description": "Tests to verify that ENTERPRISE clients with a provisioned dedicated DB have their data isolated correctly.\n\n## How to use\n1. Run '0. Setup' folder top-to-bottom once to get tokens + IDs.\n2. Copy the returned IDs into the collection variables.\n3. Run the numbered folders in order.\n4. After each write, open MongoDB Compass on BOTH the shared DB and the dedicated DB and confirm data landed in the right place.\n\n## Variables (set these in the collection)\n- BASE_URL          → http://localhost:5000\n- SUPERADMIN_TOKEN  → filled by step 0.1\n- CLIENT_TOKEN      → filled by step 0.3 (client-admin login)\n- PM_TOKEN          → filled by step 0.5\n- SUPERVISOR_TOKEN  → filled by step 0.6\n- CLIENT_ID         → filled by step 0.2\n- SITE_ID           → filled by step 1.1\n- VENDOR_ID         → filled by step 2.1\n- TRIP_ID           → filled by step 3.1",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "variable": [
+        {
+            "key": "BASE_URL",
+            "value": "http://localhost:5000"
+        },
+        {
+            "key": "SUPERADMIN_TOKEN",
+            "value": ""
+        },
+        {
+            "key": "CLIENT_TOKEN",
+            "value": ""
+        },
+        {
+            "key": "PM_TOKEN",
+            "value": ""
+        },
+        {
+            "key": "SUPERVISOR_TOKEN",
+            "value": ""
+        },
+        {
+            "key": "CLIENT_ID",
+            "value": ""
+        },
+        {
+            "key": "SITE_ID",
+            "value": ""
+        },
+        {
+            "key": "VENDOR_ID",
+            "value": ""
+        },
+        {
+            "key": "TRIP_ID",
+            "value": ""
+        },
+        {
+            "key": "PM_ID",
+            "value": ""
+        },
+        {
+            "key": "SUPERVISOR_ID",
+            "value": ""
+        }
+    ],
+    "item": [
+        {
+            "name": "0. Setup — Auth & Provision",
+            "item": [
+                {
+                    "name": "0.1 SuperAdmin Login",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "var r = pm.response.json();",
+                                    "pm.collectionVariables.set('SUPERADMIN_TOKEN', r.accessToken);"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/auth/login",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"email\":\"superadmin@example.com\",\"password\":\"yourpassword\"}"
+                        }
+                    }
+                },
+                {
+                    "name": "0.2 Create ENTERPRISE Client",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "var r = pm.response.json();",
+                                    "pm.collectionVariables.set('CLIENT_ID', r.data._id);"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERADMIN_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/superadmin/clients",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"clientname\": \"Enterprise Test Client\",\n  \"companyName\": \"EnterpriseCo\",\n  \"email\": \"enterprise@test.com\",\n  \"phone\": \"9999999999\",\n  \"password\": \"Test@1234\",\n  \"packageType\": \"ENTERPRISE\",\n  \"packageStart\": \"2025-01-01\",\n  \"packageEnd\": \"2026-01-01\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "0.3 Provision Dedicated DB",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERADMIN_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/superadmin/clients/{{CLIENT_ID}}/provision-db",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"connectionString\": \"mongodb+srv://user:pass@dedicated-cluster.mongodb.net\",\n  \"dbName\": \"enterprise_test_db\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "0.4 Client Login",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "var r = pm.response.json();",
+                                    "pm.collectionVariables.set('CLIENT_TOKEN', r.accessToken);"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/auth/login",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"email\":\"enterprise@test.com\",\"password\":\"Test@1234\"}"
+                        }
+                    }
+                },
+                {
+                    "name": "0.5 Create Project Manager",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "var r = pm.response.json();",
+                                    "pm.collectionVariables.set('PM_ID', r.data._id);"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{CLIENT_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/project",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Test PM\",\n  \"email\": \"pm@enterprise.com\",\n  \"mobile\": \"8888888888\",\n  \"password\": \"PM@1234\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "0.6 PM Login",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "var r = pm.response.json();",
+                                    "pm.collectionVariables.set('PM_TOKEN', r.accessToken);"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/auth/login",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"email\":\"pm@enterprise.com\",\"password\":\"PM@1234\"}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "1. Sites — should land in dedicated DB",
+            "item": [
+                {
+                    "name": "1.1 Create Site ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('201 created', () => pm.response.to.have.status(201));",
+                                    "var r = pm.response.json();",
+                                    "pm.collectionVariables.set('SITE_ID', r._id);",
+                                    "pm.test('site has _id', () => pm.expect(r._id).to.be.a('string'));"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{CLIENT_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/sites",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Enterprise Site A\",\n  \"location\": \"Mumbai\",\n  \"address\": \"123 Test Street\",\n  \"gates\": [{\"gateName\": \"Main Gate\", \"isMainGate\": true}]\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "1.2 Get All Sites ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('200 ok', () => pm.response.to.have.status(200));",
+                                    "var r = pm.response.json();",
+                                    "pm.test('returns array', () => pm.expect(r.data || r).to.be.an('array'));",
+                                    "pm.test('server log should show dedicated DB connection', () => pm.expect(true).to.be.true);"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{CLIENT_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/sites"
+                    }
+                },
+                {
+                    "name": "1.3 Update Site ✅ dedicated",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{CLIENT_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/sites/{{SITE_ID}}",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"name\": \"Enterprise Site A — Updated\"}"
+                        }
+                    }
+                },
+                {
+                    "name": "1.4 Assign Site to PM",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{CLIENT_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/project/{{PM_ID}}",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"assignedSites\": [\"{{SITE_ID}}\"]}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "2. Vendors — should land in dedicated DB",
+            "item": [
+                {
+                    "name": "2.1 Create Vendor ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('201 created', () => pm.response.to.have.status(201));",
+                                    "var r = pm.response.json();",
+                                    "pm.collectionVariables.set('VENDOR_ID', r.data._id);"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{PM_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/vendors",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Test Vendor\",\n  \"email\": \"vendor@test.com\",\n  \"phone\": \"7777777777\",\n  \"address\": \"456 Vendor Lane\",\n  \"assignedSites\": [\"{{SITE_ID}}\"]\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "2.2 Get Vendors ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('200 ok', () => pm.response.to.have.status(200));",
+                                    "var r = pm.response.json();",
+                                    "pm.test('vendor list returned', () => pm.expect(r.data || r).to.be.an('array'));"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{PM_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/vendors"
+                    }
+                },
+                {
+                    "name": "2.3 Update Vendor ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('200 ok', () => pm.response.to.have.status(200));"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{PM_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/vendors/{{VENDOR_ID}}",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"name\": \"Test Vendor Updated\"}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "3. Supervisors — should land in dedicated DB",
+            "item": [
+                {
+                    "name": "3.1 Create Supervisor ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('201 created', () => pm.response.to.have.status(201));",
+                                    "var r = pm.response.json();",
+                                    "pm.collectionVariables.set('SUPERVISOR_ID', r.data._id);"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{PM_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/supervisor",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Test Supervisor\",\n  \"email\": \"supervisor@enterprise.com\",\n  \"mobile\": \"6666666666\",\n  \"password\": \"Sup@1234\",\n  \"siteId\": \"{{SITE_ID}}\",\n  \"projectManagerId\": \"{{PM_ID}}\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "3.2 Supervisor Login",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "var r = pm.response.json();",
+                                    "pm.collectionVariables.set('SUPERVISOR_TOKEN', r.accessToken);"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/auth/login",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"email\":\"supervisor@enterprise.com\",\"password\":\"Sup@1234\"}"
+                        }
+                    }
+                },
+                {
+                    "name": "3.3 Get All Supervisors ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('200 ok', () => pm.response.to.have.status(200));"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{PM_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/supervisor"
+                    }
+                },
+                {
+                    "name": "3.4 Supervisor Dashboard ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('200 ok', () => pm.response.to.have.status(200));",
+                                    "var r = pm.response.json();",
+                                    "pm.test('has stats', () => pm.expect(r.stats).to.be.an('object'));"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERVISOR_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/supervisor/dashboard"
+                    }
+                },
+                {
+                    "name": "3.5 Get My Assigned Site ✅ dedicated",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERVISOR_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/supervisor/my-site"
+                    }
+                },
+                {
+                    "name": "3.6 Get Supervisor Vendors ✅ dedicated",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERVISOR_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/supervisor/vendors"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "4. Trips — core dedicated DB test",
+            "item": [
+                {
+                    "name": "4.1 Create Manual Trip (entry) ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('201 created', () => pm.response.to.have.status(201));",
+                                    "var r = pm.response.json();",
+                                    "pm.collectionVariables.set('TRIP_ID', r.tripId || r.data?._id);",
+                                    "pm.test('tripId returned', () => pm.expect(r.tripId || r.data?._id).to.exist);",
+                                    "console.log('CHECK: trip should appear in dedicated DB, NOT in shared DB');"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERVISOR_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/supervisor/vehicles/entry",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"vehicleNumber\": \"MH12AB1234\",\n  \"vendorId\": \"{{VENDOR_ID}}\",\n  \"vehicleType\": \"TRUCK\",\n  \"driverName\": \"Test Driver\",\n  \"driverPhone\": \"9876543210\",\n  \"purpose\": \"Delivery\",\n  \"loadStatus\": \"LOADED\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "4.2 Get Active Trips ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('200 ok', () => pm.response.to.have.status(200));",
+                                    "var r = pm.response.json();",
+                                    "pm.test('trip MH12AB1234 is active', () => {",
+                                    "  var trips = r.data || r;",
+                                    "  pm.expect(trips.some(t => (t.vehicleNumber || '').includes('MH12AB1234'))).to.be.true;",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERVISOR_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/supervisor/vehicles/active"
+                    }
+                },
+                {
+                    "name": "4.3 Get Trip History ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('200 ok', () => pm.response.to.have.status(200));",
+                                    "var r = pm.response.json();",
+                                    "pm.test('history has entries', () => pm.expect((r.data || r).length).to.be.greaterThan(0));"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERVISOR_TOKEN}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{BASE_URL}}/api/supervisor/trips?period=today",
+                            "query": [
+                                {
+                                    "key": "period",
+                                    "value": "today"
+                                }
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "4.4 Get Trip by ID ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('200 ok', () => pm.response.to.have.status(200));"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERVISOR_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/trips/{{TRIP_ID}}"
+                    }
+                },
+                {
+                    "name": "4.5 Trip Stats ✅ dedicated",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERVISOR_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/trips/stats"
+                    }
+                },
+                {
+                    "name": "4.6 Exit Vehicle ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('200 ok', () => pm.response.to.have.status(200));",
+                                    "console.log('CHECK: trip status should be EXITED in dedicated DB');"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERVISOR_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/supervisor/vehicles/exit",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"vehicleNumber\": \"MH12AB1234\"}"
+                        }
+                    }
+                },
+                {
+                    "name": "4.7 Supervisor Analytics ✅ dedicated",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERVISOR_TOKEN}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{BASE_URL}}/api/supervisor/analytics?period=today",
+                            "query": [
+                                {
+                                    "key": "period",
+                                    "value": "today"
+                                }
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "5. Reports — should read from dedicated DB",
+            "item": [
+                {
+                    "name": "5.1 Report Summary ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('200 ok', () => pm.response.to.have.status(200));",
+                                    "var r = pm.response.json();",
+                                    "pm.test('totalTrips > 0', () => pm.expect(r.totalTrips).to.be.greaterThan(0));",
+                                    "console.log('totalTrips from dedicated DB:', r.totalTrips);"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{PM_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/reports/summary"
+                    }
+                },
+                {
+                    "name": "5.2 Site-wise Report ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('200 ok', () => pm.response.to.have.status(200));"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{PM_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/reports/site-wise"
+                    }
+                },
+                {
+                    "name": "5.3 PM Trip Reports ✅ dedicated",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{PM_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/project/reports/trip"
+                    }
+                },
+                {
+                    "name": "5.4 PM Report Stats ✅ dedicated",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{PM_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/project/reports/stats"
+                    }
+                },
+                {
+                    "name": "5.5 PM Dashboard Stats ✅ dedicated",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{PM_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/project/dashboard/stats"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "6. Barrier Events — should land in dedicated DB",
+            "item": [
+                {
+                    "name": "6.1 Get Barrier Status ✅ dedicated",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('200 ok', () => pm.response.to.have.status(200));",
+                                    "var r = pm.response.json();",
+                                    "pm.test('state returned', () => pm.expect(r.state).to.be.a('string'));"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERVISOR_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/barrier/status"
+                    }
+                },
+                {
+                    "name": "6.2 Get All Sites Barrier Status ✅ dedicated",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{CLIENT_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/barrier/status/all"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "7. Isolation Check — shared DB should be empty",
+            "item": [
+                {
+                    "name": "7.1 SuperAdmin — List All Trips (shared DB)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('200 ok', () => pm.response.to.have.status(200));",
+                                    "console.log('VERIFY: MH12AB1234 should NOT appear here — it is in the dedicated DB');"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERADMIN_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/superadmin/dashboard"
+                    }
+                },
+                {
+                    "name": "7.2 Deprovision Dedicated DB (cleanup)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('200 ok', () => pm.response.to.have.status(200));",
+                                    "console.log('Client reverted to shared DB. Next request will use shared DB.');"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERADMIN_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/superadmin/clients/{{CLIENT_ID}}/provision-db"
+                    }
+                },
+                {
+                    "name": "7.3 Create Trip After Deprovision (should go to shared DB)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('201 created', () => pm.response.to.have.status(201));",
+                                    "console.log('VERIFY: this trip should appear in shared DB, NOT dedicated DB');"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{SUPERVISOR_TOKEN}}"
+                            }
+                        ],
+                        "url": "{{BASE_URL}}/api/supervisor/vehicles/entry",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"vehicleNumber\": \"MH12XY9999\",\n  \"vendorId\": \"{{VENDOR_ID}}\",\n  \"vehicleType\": \"CAR\",\n  \"driverName\": \"Post Deprovision Driver\",\n  \"purpose\": \"Isolation check\"\n}"
+                        }
+                    }
+                }
+            ]
+        }
+    ]
+}

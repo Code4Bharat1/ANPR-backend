@@ -1,6 +1,11 @@
 import Vendor from "../models/Vendor.model.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 import mongoose from "mongoose";
+
+function VendorModel(req) {
+  return req?.db ? req.db.model("Vendor") : Vendor;
+}
+
 export const createVendor = async (req, res, next) => {
   try {
     const { name, email, phone, address, assignedSites } = req.body;
@@ -9,7 +14,7 @@ export const createVendor = async (req, res, next) => {
       return res.status(400).json({ message: "Required fields missing" });
     }
 
-    const vendor = await Vendor.create({
+    const vendor = await VendorModel(req).create({
       name,
       email,
       phone,
@@ -37,7 +42,7 @@ export const createVendor = async (req, res, next) => {
 
 export const getVendors = async (req, res, next) => {
   try {
-    const vendors = await Vendor.find({
+    const vendors = await VendorModel(req).find({
       clientId: req.user.clientId,
     }).sort({ createdAt: -1 });
 
@@ -56,7 +61,7 @@ export const updateVendor = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid vendor ID" });
     }
 
-    const old = await Vendor.findById(id);
+    const old = await VendorModel(req).findById(id);
     if (!old) {
       return res.status(404).json({ message: "Vendor not found" });
     }
@@ -66,7 +71,7 @@ export const updateVendor = async (req, res, next) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    const updated = await Vendor.findByIdAndUpdate(
+    const updated = await VendorModel(req).findByIdAndUpdate(
       id,
       req.body,
       { new: true, runValidators: true }

@@ -1,5 +1,5 @@
 import express from "express";
-import { verifyAccessToken } from "../middlewares/auth.middleware.js";
+import { verifyAccessToken, resolveTenantDB } from "../middlewares/auth.middleware.js";
 import { authorizeRoles } from "../middlewares/role.middleware.js";
 import { checkFeatureFlag } from "../middlewares/checkFeatureFlag.middleware.js";
 import {
@@ -14,6 +14,7 @@ const router = express.Router();
 
 const barrierGuard = [
   verifyAccessToken,
+  resolveTenantDB,
   authorizeRoles("supervisor", "project_manager", "admin","client"),
   checkFeatureFlag("barrierAutomation"),
 ];
@@ -31,6 +32,7 @@ router.post("/close", ...barrierGuard, closeBarrier);
 router.get(
   "/status",
   verifyAccessToken,
+  resolveTenantDB,
   authorizeRoles("supervisor", "project_manager", "admin","client"),
   getBarrierStatus
 );
@@ -38,6 +40,7 @@ router.get(
 router.get(
   "/status/all",
   verifyAccessToken,
+  resolveTenantDB,
   authorizeRoles("admin", "client"),
   getAllBarrierStatus
 );

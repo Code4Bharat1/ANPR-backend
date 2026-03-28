@@ -20,6 +20,9 @@ function TripModel(req) {
 function VehicleModel(req) {
   return req?.db ? req.db.model("Vehicle") : Vehicle;
 }
+function SiteModel(req) {
+  return req?.db ? req.db.model("Site") : Site;
+}
 
 /**
  * @desc   Get trip history with filters + pagination
@@ -839,14 +842,14 @@ export const createManualTrip = async (req, res) => {
 
     const plate = vehicleNumber.toUpperCase();
 
-    let vehicle = await Vehicle.findOne({ vehicleNumber: plate, siteId });
+    let vehicle = await VehicleModel(req).findOne({ vehicleNumber: plate, siteId });
 
     if (vehicle?.isInside) {
       return res.status(409).json({ message: "Vehicle already inside" });
     }
 
     if (!vehicle) {
-      vehicle = await Vehicle.create({
+      vehicle = await VehicleModel(req).create({
         vehicleNumber: plate,
         vehicleType: vehicleType || "TRUCK",
         driverName,
@@ -928,7 +931,7 @@ export const createManualTrip = async (req, res) => {
       challanImage: media?.challanImage || null,
     };
 
-    const site = await Site.findById(siteId);
+    const site = await SiteModel(req).findById(siteId);
 
     const trip = await TripModel(req).create({
       clientId,
@@ -968,6 +971,7 @@ export const createManualTrip = async (req, res) => {
 
     try {
       await triggerBarrierForTrip({
+        db: req?.db,
         siteId,
         clientId,
         tripId: trip._id,
@@ -1055,7 +1059,7 @@ export const createManualTripMobile = async (req, res) => {
     const normalizedVehicleNumber = vehicleNumber.toUpperCase();
 
     // Find existing vehicle
-    let vehicle = await Vehicle.findOne({
+    let vehicle = await VehicleModel(req).findOne({
       vehicleNumber: normalizedVehicleNumber,
       siteId,
     });
@@ -1067,9 +1071,8 @@ export const createManualTripMobile = async (req, res) => {
       });
     }
 
-    // Create or update vehicle
     if (!vehicle) {
-      vehicle = await Vehicle.create({
+      vehicle = await VehicleModel(req).create({
         vehicleNumber: normalizedVehicleNumber,
         vehicleType: vehicleType || "TRUCK",
         driverName: driverName || "",
@@ -1096,7 +1099,7 @@ export const createManualTripMobile = async (req, res) => {
     }
 
     // Fetch site for PM assignment
-    const site = await Site.findById(siteId);
+    const site = await SiteModel(req).findById(siteId);
 
     // 🔥 FIX: Structure entryMedia properly
     // Handle both old array format and new object format
@@ -1199,6 +1202,7 @@ export const createManualTripMobile = async (req, res) => {
 
     try {
       await triggerBarrierForTrip({
+        db: req?.db,
         siteId,
         clientId,
         tripId: trip._id,
@@ -1575,28 +1579,41 @@ export const getTripStats = async (req, res) => {
 /**
  * @desc   Bulk-mark INSIDE trips as OVERSTAY when elapsed time exceeds their threshold
  * @usage  Called by scheduled job in server.js every 5 minutes
+ * Runs on shared DB + all active dedicated DB connections.
  */
 export const markOverstayTrips = async () => {
   try {
     const now = new Date();
-
-    // Find all INSIDE trips and check against their per-trip threshold
-    // We use an aggregation to compare entryAt + overstayThreshold against now
-    const result = await Trip.updateMany(
-      {
-        status: "INSIDE",
-        $expr: {
-          $gt: [
-            { $subtract: [now, "$entryAt"] },
-            { $multiply: [{ $ifNull: ["$overstayThreshold", 240] }, 60000] },
-          ],
-        },
+    const query = {
+      status: "INSIDE",
+      $expr: {
+        $gt: [
+          { $subtract: [now, "$entryAt"] },
+          { $multiply: [{ $ifNull: ["$overstayThreshold", 240] }, 60000] },
+        ],
       },
-      { $set: { status: "OVERSTAY" } },
-    );
+    };
+    const update = { $set: { status: "OVERSTAY" } };
 
-    if (result.modifiedCount > 0) {
-      console.log(`⏰ Overstay job: marked ${result.modifiedCount} trip(s) as OVERSTAY`);
+    // 1️⃣ Shared DB
+    const sharedResult = await Trip.updateMany(query, update);
+
+    // 2️⃣ All active dedicated DB connections
+    const { getAllConnections } = await import("../config/tenantDB.js");
+    const dedicatedConns = getAllConnections();
+    let dedicatedCount = 0;
+    for (const conn of dedicatedConns) {
+      try {
+        const r = await conn.model("Trip").updateMany(query, update);
+        dedicatedCount += r.modifiedCount;
+      } catch (e) {
+        console.error("❌ Overstay job error on dedicated DB:", e.message);
+      }
+    }
+
+    const total = sharedResult.modifiedCount + dedicatedCount;
+    if (total > 0) {
+      console.log(`⏰ Overstay job: marked ${total} trip(s) as OVERSTAY (${sharedResult.modifiedCount} shared, ${dedicatedCount} dedicated)`);
     }
   } catch (err) {
     console.error("❌ Overstay job error:", err.message);

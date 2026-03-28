@@ -1,10 +1,23 @@
 import Trip from "../models/Trip.model.js";
 import Site from "../models/Site.model.js";
 import Supervisor from "../models/supervisor.model.js";
-import ProjectManager from "../models/ProjectManager.model.js"; // ✅ Add missing import
-import ExcelJS from "exceljs"; // ✅ Add missing ExcelJS import
-import XLSX from "xlsx"; // ✅ Add XLSX for exportReportsToExcel
+import ProjectManager from "../models/ProjectManager.model.js";
+import ExcelJS from "exceljs";
+import XLSX from "xlsx";
 import { buildDateFilter } from "../utils/query.util.js";
+
+function TripModel(req) {
+  return req?.db ? req.db.model("Trip") : Trip;
+}
+function SiteModel(req) {
+  return req?.db ? req.db.model("Site") : Site;
+}
+function SupervisorModel(req) {
+  return req?.db ? req.db.model("Supervisor") : Supervisor;
+}
+function ProjectManagerModel(req) {
+  return req?.db ? req.db.model("ProjectManager") : ProjectManager;
+}
 
 export const summary = async (req, res, next) => {
   try {
@@ -16,15 +29,15 @@ export const summary = async (req, res, next) => {
     const q = { clientId };
     if (dateFilter) q.createdAt = dateFilter;
 
-    const totalTrips = await Trip.countDocuments(q);
-    const activeTrips = await Trip.countDocuments({ ...q, status: "INSIDE" });
-    const completedTrips = await Trip.countDocuments({
+    const totalTrips = await TripModel(req).countDocuments(q);
+    const activeTrips = await TripModel(req).countDocuments({ ...q, status: "INSIDE" });
+    const completedTrips = await TripModel(req).countDocuments({
       ...q,
       status: "EXITED",
     });
 
-    const totalSites = await Site.countDocuments({ clientId });
-    const totalSupervisors = await Supervisor.countDocuments({ clientId });
+    const totalSites = await SiteModel(req).countDocuments({ clientId });
+    const totalSupervisors = await SupervisorModel(req).countDocuments({ clientId });
 
     res.json({
       totalTrips,
@@ -41,7 +54,7 @@ export const summary = async (req, res, next) => {
 export const siteWise = async (req, res, next) => {
   try {
     const clientId = req.user.clientId;
-    const data = await Trip.aggregate([
+    const data = await TripModel(req).aggregate([
       {
         $match: {
           clientId: new (await import("mongoose")).default.Types.ObjectId(
@@ -80,7 +93,7 @@ export const getReports = async (req, res) => {
        1️⃣ Assigned Sites Resolution
     ---------------------------------------- */
     if (req.user.role === "admin" || req.user.role === "client") {
-      const sites = await Site.find(
+      const sites = await SiteModel(req).find(
         { clientId: req.user.clientId },
         "_id"
       );
@@ -88,7 +101,7 @@ export const getReports = async (req, res) => {
     }
 
     if (req.user.role === "project_manager") {
-      const pm = await ProjectManager.findOne({
+      const pm = await ProjectManagerModel(req).findOne({
         email: req.user.email,
       }).populate("assignedSites", "_id");
 
@@ -131,7 +144,7 @@ export const getReports = async (req, res) => {
     }
 
     if (site && site !== "All Sites") {
-      const selectedSite = await Site.findOne({
+      const selectedSite = await SiteModel(req).findOne({
         name: site,
         clientId: req.user.clientId,
       });
@@ -143,7 +156,7 @@ export const getReports = async (req, res) => {
     /* ----------------------------------------
        3️⃣ Fetch Trips
     ---------------------------------------- */
-    const trips = await Trip.find(query)
+    const trips = await TripModel(req).find(query)
       .populate("vehicleId")
       .populate("vendorId", "name")
       .populate("siteId", "name location siteId")
@@ -221,10 +234,10 @@ export const exportReports = async (req, res, next) => {
     let assignedSiteIds = [];
 
     if (req.user.role === "admin" || req.user.role === "client") {
-      const allSites = await Site.find({ clientId: req.user.clientId }, "_id");
+      const allSites = await SiteModel(req).find({ clientId: req.user.clientId }, "_id");
       assignedSiteIds = allSites.map((s) => s._id);
     } else if (req.user.role === "project_manager") {
-      const pm = await ProjectManager.findOne({ user: req.user.id }).populate(
+      const pm = await ProjectManagerModel(req).findOne({ user: req.user.id }).populate(
         "assignedSites",
         "_id",
       );
@@ -262,7 +275,7 @@ export const exportReports = async (req, res, next) => {
 
     // Specific site filter
     if (site && site !== "All Sites") {
-      const selectedSite = await Site.findOne({
+      const selectedSite = await SiteModel(req).findOne({
         name: site,
         clientId: req.user.clientId,
       });
@@ -274,12 +287,12 @@ export const exportReports = async (req, res, next) => {
     // console.log('🔍 Export query:', JSON.stringify(query, null, 2));
 
     // 3️⃣ Fetch trips with ALL related data populated
-    const trips = await Trip.find(query)
-      .populate("siteId", "name siteId address") // Site info
-      .populate("vehicleId", "vehicleNumber plateNumber") // Vehicle info
+    const trips = await TripModel(req).find(query)
+      .populate("siteId", "name siteId address")
+      .populate("vehicleId", "vehicleNumber plateNumber")
       .populate("supervisorId", "name email phone")
-      .populate("projectManagerId", "name email") // Supervisor info
-      .populate("clientId", "companyName") // Client info (optional)
+      .populate("projectManagerId", "name email")
+      .populate("clientId", "companyName")
       .sort({ entryAt: -1 });
 
     // console.log(`✅ Found ${trips.length} trips for export`);
@@ -517,7 +530,7 @@ export const getTripReportsPM = async (req, res) => {
     }
 
     // ✅ FIX: Find PM by EMAIL (single source of truth)
-    const projectManager = await ProjectManager.findOne({
+    const projectManager = await ProjectManagerModel(req).findOne({
       email: req.user.email,
     }).populate("assignedSites", "_id name siteId");
 
@@ -546,7 +559,7 @@ export const getTripReportsPM = async (req, res) => {
       };
     }
 
-    const reports = await Trip.find(filter)
+    const reports = await TripModel(req).find(filter)
       .populate("vehicleId")
       .populate("vendorId", "name email phone")
       .populate("siteId", "name location siteId")
@@ -623,7 +636,7 @@ export const exportReportsToExcelPM = async (req, res) => {
 
     if (req.user.role === "project_manager") {
       // ✅ FIXED: Find by email
-      projectManager = await ProjectManager.findOne({
+      projectManager = await ProjectManagerModel(req).findOne({
         email: req.user.email,
       }).populate("assignedSites", "_id name");
 
@@ -715,7 +728,7 @@ export const exportReportsToExcelPM = async (req, res) => {
     // console.log('🔍 Export filter:', JSON.stringify(filter, null, 2));
 
     // Get trips
-    const reports = await Trip.find(filter)
+    const reports = await TripModel(req).find(filter)
       .populate("vehicleId", "vehicleNumber")
       .populate("vendorId", "name email phone")
       .populate("siteId", "name location")
@@ -891,7 +904,7 @@ export const getReportStatsPM = async (req, res) => {
     let assignedSites = [];
 
     if (req.user.role === "project_manager") {
-      projectManager = await ProjectManager.findOne({
+      projectManager = await ProjectManagerModel(req).findOne({
         user: req.user.id,
       }).populate("assignedSites", "_id name");
 

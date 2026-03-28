@@ -1,12 +1,19 @@
 import Site from "../models/Site.model.js";
 import ProjectManager from "../models/ProjectManager.model.js";
 import Supervisor from "../models/supervisor.model.js";
-import Vehicle from "../models/Vehicle.model.js"; // Added missing import
-import Client from "../models/Client.model.js"; // Added missing import
-import Device from "../models/Device.model.js"; // Added missing import
+import Vehicle from "../models/Vehicle.model.js";
+import Client from "../models/Client.model.js";
+import Device from "../models/Device.model.js";
 import mongoose from "mongoose";
 import Trip from "../models/Trip.model.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
+
+function SiteModel(req) { return req?.db ? req.db.model("Site") : Site; }
+function TripModel(req) { return req?.db ? req.db.model("Trip") : Trip; }
+function DeviceModel(req) { return req?.db ? req.db.model("Device") : Device; }
+function SupervisorModel(req) { return req?.db ? req.db.model("Supervisor") : Supervisor; }
+function ProjectManagerModel(req) { return req?.db ? req.db.model("ProjectManager") : ProjectManager; }
+function VehicleModel(req) { return req?.db ? req.db.model("Vehicle") : Vehicle; }
 
 /* ======================================================
    CLIENT LEVEL SITE MANAGEMENT (For clients managing their own sites)
@@ -38,7 +45,7 @@ export const createClientSite = async (req, res, next) => {
       });
     }
 
-    const site = await Site.create({
+    const site = await SiteModel(req).create({
       ...req.body,
       gates: cleanedGates,
       clientId: req.user.clientId,
@@ -67,7 +74,7 @@ export const getClientSites = async (req, res, next) => {
     const q = {};
     if (req.user.clientId) q.clientId = req.user.clientId;
 
-    const sites = await Site.find(q)
+    const sites = await SiteModel(req).find(q)
       .sort({ createdAt: -1 })
       .lean();
 
@@ -104,7 +111,7 @@ export const updateClientSite = async (req, res, next) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const site = await Site.findById(id);
+    const site = await SiteModel(req).findById(id);
 
     if (!site) {
       return res.status(404).json({ message: "Site not found" });
@@ -154,7 +161,7 @@ export const updateClientSite = async (req, res, next) => {
 
     // console.log('📝 Final update data:', updateData);
 
-    const updatedSite = await Site.findByIdAndUpdate(
+    const updatedSite = await SiteModel(req).findByIdAndUpdate(
       id,
       updateData,
       {
@@ -200,7 +207,7 @@ export const updateClientSite = async (req, res, next) => {
 export const toggleClientSite = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const site = await Site.findById(id);
+    const site = await SiteModel(req).findById(id);
 
     if (!site) return res.status(404).json({ message: "Site not found" });
 
@@ -241,7 +248,7 @@ export const deleteClientSite = async (req, res, next) => {
     }
 
     // 1️⃣ Check if site exists
-    const site = await Site.findById(id);
+    const site = await SiteModel(req).findById(id);
 
     if (!site) {
       return res.status(404).json({ message: "Site not found" });
@@ -255,11 +262,11 @@ export const deleteClientSite = async (req, res, next) => {
     }
 
     // 3️⃣ Check if site is assigned to any users
-    const assignedPMs = await ProjectManager.countDocuments({
+    const assignedPMs = await ProjectManagerModel(req).countDocuments({
       assignedSites: id
     });
 
-    const assignedSupervisors = await Supervisor.countDocuments({
+    const assignedSupervisors = await SupervisorModel(req).countDocuments({
       siteId: id
     });
 
@@ -280,7 +287,7 @@ export const deleteClientSite = async (req, res, next) => {
     });
 
     // 5️⃣ Delete the site
-    await Site.findByIdAndDelete(id);
+    await SiteModel(req).findByIdAndDelete(id);
 
     res.json({
       message: "Site deleted successfully",
@@ -314,7 +321,7 @@ export const getMySites = async (req, res) => {
     }
 
     // Try to find the project manager
-    const pm = await ProjectManager.findById(req.user.id)
+    const pm = await ProjectManagerModel(req).findById(req.user.id)
       .populate({
         path: "assignedSites",
         select:
@@ -372,7 +379,7 @@ export const getMySites = async (req, res) => {
  */
 export const getPMSiteDetails = async (req, res) => {
   try {
-    const pm = await ProjectManager.findById(req.user.id)
+    const pm = await ProjectManagerModel(req).findById(req.user.id)
       .select("assignedSites")
       .lean();
 
@@ -382,7 +389,7 @@ export const getPMSiteDetails = async (req, res) => {
       return res.status(403).json({ message: "Access denied to this site" });
     }
 
-    const site = await Site.findById(siteId)
+    const site = await SiteModel(req).findById(siteId)
       .populate("supervisors", "name email phone")
       .populate("projectManagers", "name email phone")
       .populate("clientId", "companyName clientname")
@@ -398,7 +405,7 @@ export const getPMSiteDetails = async (req, res) => {
     const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     // 🔹 RECENT ENTRIES
-    const recentEntries = await Trip.find({
+    const recentEntries = await TripModel(req).find({
       siteId,
       entryAt: { $exists: true, $ne: null, $gte: last24Hours },
     })
@@ -408,7 +415,7 @@ export const getPMSiteDetails = async (req, res) => {
       .lean();
 
     // 🔹 RECENT EXITS
-    const recentExits = await Trip.find({
+    const recentExits = await TripModel(req).find({
       siteId,
       exitAt: { $exists: true, $ne: null, $gte: last24Hours },
     })
@@ -417,18 +424,18 @@ export const getPMSiteDetails = async (req, res) => {
       .limit(10)
       .lean();
 
-    const todayEntries = await Trip.countDocuments({
+    const todayEntries = await TripModel(req).countDocuments({
       siteId,
       entryAt: { $exists: true, $gte: todayStart },
     });
 
-    const todayExits = await Trip.countDocuments({
+    const todayExits = await TripModel(req).countDocuments({
       siteId,
       exitAt: { $exists: true, $gte: todayStart },
     });
 
     // 🔹 ACTIVE VEHICLES
-    const activeTrips = await Trip.find({
+    const activeTrips = await TripModel(req).find({
       siteId,
       status: "INSIDE",
     })
@@ -519,7 +526,7 @@ export const getPMSiteDetails = async (req, res) => {
  */
 export const getSiteTraffic = async (req, res) => {
   try {
-    const pm = await ProjectManager.findById(req.user.id)
+    const pm = await ProjectManagerModel(req).findById(req.user.id)
       .select("assignedSites")
       .lean();
 
@@ -533,7 +540,7 @@ export const getSiteTraffic = async (req, res) => {
     const days = parseInt(req.query.days) || 7;
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    const trafficData = await Vehicle.aggregate([
+    const trafficData = await VehicleModel(req).aggregate([
       {
         $match: {
           siteId: new mongoose.Types.ObjectId(siteId),
@@ -582,7 +589,7 @@ export const getSiteTraffic = async (req, res) => {
  */
 export const getSiteActivity = async (req, res) => {
   try {
-    const pm = await ProjectManager.findById(req.user.id)
+    const pm = await ProjectManagerModel(req).findById(req.user.id)
       .select("assignedSites")
       .lean();
 
@@ -592,7 +599,7 @@ export const getSiteActivity = async (req, res) => {
       return res.status(403).json({ message: "Access denied to this site" });
     }
 
-    const site = await Site.findById(siteId)
+    const site = await SiteModel(req).findById(siteId)
       .select("liveVehicles vehiclesOnSite activeVehicles totalVehicles")
       .lean();
 
@@ -667,7 +674,7 @@ export const logVehicleMovement = async (req, res) => {
     }
 
     // Check if user has access to the site
-    const pm = await ProjectManager.findById(req.user.id)
+    const pm = await ProjectManagerModel(req).findById(req.user.id)
       .select("assignedSites")
       .lean();
 
@@ -676,7 +683,7 @@ export const logVehicleMovement = async (req, res) => {
     }
 
     // 1️⃣ Create log entry
-    const logEntry = await Vehicle.create({
+    const logEntry = await VehicleModel(req).create({
       siteId,
       vehicleNumber,
       type,
@@ -688,7 +695,7 @@ export const logVehicleMovement = async (req, res) => {
     });
 
     // 2️⃣ Update site counters (ATOMIC + SAFE)
-    await Site.findByIdAndUpdate(siteId, [
+    await SiteModel(req).findByIdAndUpdate(siteId, [
       {
         $set: {
           vehiclesOnSite: {
@@ -751,7 +758,7 @@ export const updateVehicleStatus = async (req, res) => {
       });
     }
 
-    const pm = await ProjectManager.findById(req.user.id)
+    const pm = await ProjectManagerModel(req).findById(req.user.id)
       .select("assignedSites")
       .lean();
 
@@ -773,7 +780,7 @@ export const updateVehicleStatus = async (req, res) => {
       arrayFilters: [{ "vehicle.vehicleId": vehicleId }],
     };
 
-    const result = await Site.updateOne(
+    const result = await SiteModel(req).updateOne(
       { _id: siteId, "liveVehicles.vehicleId": vehicleId },
       update,
       options
@@ -781,7 +788,7 @@ export const updateVehicleStatus = async (req, res) => {
 
     // 👇 Vehicle nahi mila → ADD karo
     if (result.matchedCount === 0) {
-      await Site.findByIdAndUpdate(siteId, {
+      await SiteModel(req).findByIdAndUpdate(siteId, {
         $push: {
           liveVehicles: {
             vehicleId,
@@ -819,7 +826,7 @@ export const addVehicleToSite = async (req, res) => {
     }
 
     // Check access
-    const pm = await ProjectManager.findById(req.user.id)
+    const pm = await ProjectManagerModel(req).findById(req.user.id)
       .select("assignedSites")
       .lean();
 
@@ -828,7 +835,7 @@ export const addVehicleToSite = async (req, res) => {
     }
 
     // Add vehicle to site and update counters
-    const updatedSite = await Site.findByIdAndUpdate(
+    const updatedSite = await SiteModel(req).findByIdAndUpdate(
       siteId,
       {
         $push: {
@@ -868,7 +875,7 @@ export const removeVehicleFromSite = async (req, res) => {
       });
     }
 
-    const pm = await ProjectManager.findById(req.user.id)
+    const pm = await ProjectManagerModel(req).findById(req.user.id)
       .select("assignedSites")
       .lean();
 
@@ -876,12 +883,12 @@ export const removeVehicleFromSite = async (req, res) => {
       return res.status(403).json({ message: "Access denied to this site" });
     }
 
-    const site = await Site.findById(siteId).lean();
+    const site = await SiteModel(req).findById(siteId).lean();
     const wasOnSite = site.liveVehicles?.some(
       (v) => v.vehicleId === vehicleId
     );
 
-    const updatedSite = await Site.findByIdAndUpdate(
+    const updatedSite = await SiteModel(req).findByIdAndUpdate(
       siteId,
       {
         $pull: { liveVehicles: { vehicleId } },
@@ -912,7 +919,7 @@ export const removeVehicleFromSite = async (req, res) => {
  */
 export const resetDailyCounters = async () => {
   try {
-    await Site.updateMany(
+    await SiteModel(req).updateMany(
       {},
       {
         $set: {
@@ -934,18 +941,18 @@ export const resetDailyCounters = async () => {
 // GET all sites (across all clients)
 export const getAllSites = async (req, res, next) => {
   try {
-    const sites = await Site.find()
+    const sites = await SiteModel(req).find()
       .populate('clientId', 'companyName clientname email clientCode')
       .sort({ createdAt: -1 });
 
     const sitesWithStats = await Promise.all(
       sites.map(async (site) => {
-        const deviceCount = await Device.countDocuments({ siteId: site._id });
-        const activeDeviceCount = await Device.countDocuments({
+        const deviceCount = await DeviceModel(req).countDocuments({ siteId: site._id });
+        const activeDeviceCount = await DeviceModel(req).countDocuments({
           siteId: site._id,
           isEnabled: true
         });
-        const onlineDeviceCount = await Device.countDocuments({
+        const onlineDeviceCount = await DeviceModel(req).countDocuments({
           siteId: site._id,
           isOnline: true
         });
@@ -984,7 +991,7 @@ export const getAllSites = async (req, res, next) => {
 // GET single site by ID
 export const getAdminSiteById = async (req, res, next) => {
   try {
-    const site = await Site.findById(req.params.id)
+    const site = await SiteModel(req).findById(req.params.id)
       .populate('clientId', 'companyName clientname email clientCode');
 
     if (!site) {
@@ -994,7 +1001,7 @@ export const getAdminSiteById = async (req, res, next) => {
       });
     }
 
-    const devices = await Device.find({ siteId: site._id })
+    const devices = await DeviceModel(req).find({ siteId: site._id })
       .select('serialNo devicetype isEnabled isOnline lastActive');
 
     res.json({
@@ -1047,7 +1054,7 @@ export const createAdminSite = async (req, res, next) => {
       });
     }
 
-    const newSite = await Site.create({
+    const newSite = await SiteModel(req).create({
       name,
       clientId,
       location,
@@ -1059,7 +1066,7 @@ export const createAdminSite = async (req, res, next) => {
       createdBy: req.user.id,
     });
 
-    const populatedSite = await Site.findById(newSite._id)
+    const populatedSite = await SiteModel(req).findById(newSite._id)
       .populate('clientId', 'companyName clientname email');
 
     await logAudit({
@@ -1094,7 +1101,7 @@ export const updateAdminSite = async (req, res, next) => {
       clientId
     } = req.body;
 
-    const site = await Site.findById(id);
+    const site = await SiteModel(req).findById(id);
     if (!site) {
       return res.status(404).json({
         success: false,
@@ -1136,7 +1143,7 @@ export const updateAdminSite = async (req, res, next) => {
 
     await site.save();
 
-    const updatedSite = await Site.findById(id)
+    const updatedSite = await SiteModel(req).findById(id)
       .populate('clientId', 'companyName clientname email');
 
     await logAudit({
@@ -1162,7 +1169,7 @@ export const deleteAdminSite = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const site = await Site.findById(id);
+    const site = await SiteModel(req).findById(id);
     if (!site) {
       return res.status(404).json({
         success: false,
@@ -1171,7 +1178,7 @@ export const deleteAdminSite = async (req, res, next) => {
     }
 
     // Check if site has devices
-    const deviceCount = await Device.countDocuments({ siteId: id });
+    const deviceCount = await DeviceModel(req).countDocuments({ siteId: id });
     if (deviceCount > 0) {
       return res.status(400).json({
         success: false,
@@ -1180,11 +1187,11 @@ export const deleteAdminSite = async (req, res, next) => {
     }
 
     // Check if site is assigned to any users
-    const assignedPMs = await ProjectManager.countDocuments({
+    const assignedPMs = await ProjectManagerModel(req).countDocuments({
       assignedSites: id
     });
 
-    const assignedSupervisors = await Supervisor.countDocuments({
+    const assignedSupervisors = await SupervisorModel(req).countDocuments({
       siteId: id
     });
 
@@ -1207,7 +1214,7 @@ export const deleteAdminSite = async (req, res, next) => {
     });
 
     // Hard delete the site
-    await Site.findByIdAndDelete(id);
+    await SiteModel(req).findByIdAndDelete(id);
 
     res.json({
       success: true,
@@ -1223,7 +1230,7 @@ export const toggleAdminSiteStatus = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const site = await Site.findById(id);
+    const site = await SiteModel(req).findById(id);
     if (!site) {
       return res.status(404).json({
         success: false,
@@ -1268,13 +1275,13 @@ export const getSitesByClient = async (req, res, next) => {
       });
     }
 
-    const sites = await Site.find({ clientId })
+    const sites = await SiteModel(req).find({ clientId })
       .sort({ createdAt: -1 });
 
     const sitesWithStats = await Promise.all(
       sites.map(async (site) => {
-        const deviceCount = await Device.countDocuments({ siteId: site._id });
-        const activeDeviceCount = await Device.countDocuments({
+        const deviceCount = await DeviceModel(req).countDocuments({ siteId: site._id });
+        const activeDeviceCount = await DeviceModel(req).countDocuments({
           siteId: site._id,
           isEnabled: true
         });

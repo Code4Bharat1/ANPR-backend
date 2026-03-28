@@ -3,6 +3,9 @@ import Client from "../models/Client.model.js";
 import Site from "../models/Site.model.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 
+function DeviceModel(req) { return req?.db ? req.db.model("Device") : Device; }
+function SiteModel(req) { return req?.db ? req.db.model("Site") : Site; }
+
 /* ======================================================
    HELPERS
 ====================================================== */
@@ -28,7 +31,7 @@ async function addDeviceToGate(siteId, gateId, deviceId, devicetype, role) {
   const pushOps = {};
   arrayFields.forEach(f => { pushOps[`gates.$.${f}`] = deviceId; });
 
-  await Site.updateOne(
+  await SiteModel(req).updateOne(
     { _id: siteId, "gates._id": gateId },
     { $addToSet: pushOps }
   );
@@ -43,7 +46,7 @@ async function removeDeviceFromGate(siteId, gateId, deviceId, devicetype, role) 
   const pullOps = {};
   arrayFields.forEach(f => { pullOps[`gates.$.${f}`] = deviceId; });
 
-  await Site.updateOne(
+  await SiteModel(req).updateOne(
     { _id: siteId, "gates._id": gateId },
     { $pull: pullOps }
   );
@@ -86,7 +89,7 @@ export const registerDevice = async (req, res, next) => {
     const normalizedType = deviceType.toUpperCase();
 
     // Duplicate serial check
-    if (await Device.findOne({ serialNo: serialNumber })) {
+    if (await DeviceModel(req).findOne({ serialNo: serialNumber })) {
       return res.status(409).json({
         message: "Device with this serial number already exists"
       });
@@ -94,7 +97,7 @@ export const registerDevice = async (req, res, next) => {
 
     // If gateId provided, verify it belongs to the site
     if (gateId) {
-      const site = await Site.findOne({ _id: siteId, "gates._id": gateId });
+      const site = await SiteModel(req).findOne({ _id: siteId, "gates._id": gateId });
       if (!site) {
         return res.status(400).json({ message: "gateId does not exist on this site" });
       }
@@ -102,7 +105,7 @@ export const registerDevice = async (req, res, next) => {
 
     const finalDeviceName = deviceName || `Device_${serialNumber}`;
 
-    const device = await Device.create({
+    const device = await DeviceModel(req).create({
       deviceName: finalDeviceName,
       devicetype: normalizedType,
       serialNo: serialNumber,
@@ -121,7 +124,7 @@ export const registerDevice = async (req, res, next) => {
     await addDeviceToGate(siteId, gateId, device._id, normalizedType, device.role);
 
     // Keep assignedDevices on Site in sync
-    await Site.findByIdAndUpdate(siteId, { $addToSet: { assignedDevices: device._id } });
+    await SiteModel(req).findByIdAndUpdate(siteId, { $addToSet: { assignedDevices: device._id } });
 
     await logAudit({ req, action: "REGISTER", module: "DEVICE", newValue: device });
 
@@ -142,7 +145,7 @@ export const updateDevice = async (req, res, next) => {
     const { id } = req.params;
     const { deviceType, clientId, siteId, ipAddress, notes, role, gateId, lane } = req.body;
 
-    const device = await Device.findById(id);
+    const device = await DeviceModel(req).findById(id);
     if (!device) {
       return res.status(404).json({ message: "Device not found" });
     }
@@ -169,7 +172,7 @@ export const updateDevice = async (req, res, next) => {
 
     // Validate new gateId belongs to new site
     if (newGateId && newSiteId) {
-      const site = await Site.findOne({ _id: newSiteId, "gates._id": newGateId });
+      const site = await SiteModel(req).findOne({ _id: newSiteId, "gates._id": newGateId });
       if (!site) {
         return res.status(400).json({ message: "gateId does not exist on this site" });
       }
@@ -195,10 +198,10 @@ export const updateDevice = async (req, res, next) => {
 
     // Keep Site.assignedDevices in sync when site changes
     if (oldSiteId && oldSiteId !== newSiteId) {
-      await Site.findByIdAndUpdate(oldSiteId, { $pull: { assignedDevices: device._id } });
+      await SiteModel(req).findByIdAndUpdate(oldSiteId, { $pull: { assignedDevices: device._id } });
     }
     if (newSiteId && oldSiteId !== newSiteId) {
-      await Site.findByIdAndUpdate(newSiteId, { $addToSet: { assignedDevices: device._id } });
+      await SiteModel(req).findByIdAndUpdate(newSiteId, { $addToSet: { assignedDevices: device._id } });
     }
 
     await logAudit({ req, action: "UPDATE", module: "DEVICE", oldValue, newValue: device });
@@ -217,7 +220,7 @@ export const deleteDevice = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const device = await Device.findById(id);
+    const device = await DeviceModel(req).findById(id);
     if (!device) {
       return res.status(404).json({ message: "Device not found" });
     }
@@ -231,11 +234,11 @@ export const deleteDevice = async (req, res, next) => {
     }
     // Remove from Site.assignedDevices
     if (device.siteId) {
-      await Site.findByIdAndUpdate(device.siteId, { $pull: { assignedDevices: device._id } });
+      await SiteModel(req).findByIdAndUpdate(device.siteId, { $pull: { assignedDevices: device._id } });
     }
 
     await logAudit({ req, action: "DELETE", module: "DEVICE", oldValue: device });
-    await Device.findByIdAndDelete(id);
+    await DeviceModel(req).findByIdAndDelete(id);
 
     res.json({ message: "Device deleted successfully" });
   } catch (e) {
@@ -245,7 +248,7 @@ export const deleteDevice = async (req, res, next) => {
 
 export const toggleDeviceStatus = async (req, res, next) => {
   try {
-    const device = await Device.findById(req.params.id);
+    const device = await DeviceModel(req).findById(req.params.id);
     if (!device) {
       return res.status(404).json({ message: "Device not found" });
     }
@@ -288,7 +291,7 @@ export const assignDevice = async (req, res, next) => {
     const { id } = req.params;
     const { clientId, siteId } = req.body;
 
-    const device = await Device.findById(id);
+    const device = await DeviceModel(req).findById(id);
     if (!device) {
       return res.status(404).json({ message: "Device not found" });
     }
@@ -334,7 +337,7 @@ export const listDevices = async (req, res, next) => {
       query.clientId = req.user.clientId;
     }
 
-    const devices = await Device.find(query)
+    const devices = await DeviceModel(req).find(query)
       .populate('clientId', 'companyName name')
       .populate('siteId', 'name')
       .sort({ createdAt: -1 });
@@ -364,7 +367,7 @@ export const listDevices = async (req, res, next) => {
 export const getDevices = async (req, res) => {
   try {
     // Populate both client and site information
-    const devices = await Device.find({ clientId: req.user.clientId })
+    const devices = await DeviceModel(req).find({ clientId: req.user.clientId })
       .populate('clientId', 'companyName name')  // Populate client
       .populate('siteId', 'name address')        // Populate site
       .select('-__v')  // Exclude version key
@@ -438,7 +441,7 @@ export const heartbeat = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const device = await Device.findByIdAndUpdate(
+    const device = await DeviceModel(req).findByIdAndUpdate(
       id,
       { isOnline: true, lastActive: new Date() },
       { new: true }
@@ -463,7 +466,7 @@ export const getDevicesByGate = async (req, res, next) => {
   try {
     const { siteId, gateId } = req.params;
 
-    const site = await Site.findOne(
+    const site = await SiteModel(req).findOne(
       { _id: siteId, "gates._id": gateId },
       { "gates.$": 1 }
     )
@@ -506,7 +509,7 @@ export const assignDeviceToGate = async (req, res, next) => {
     const { id } = req.params;
     const { gateId, siteId } = req.body;
 
-    const device = await Device.findById(id);
+    const device = await DeviceModel(req).findById(id);
     if (!device) {
       return res.status(404).json({ message: "Device not found" });
     }
@@ -515,7 +518,7 @@ export const assignDeviceToGate = async (req, res, next) => {
 
     // Validate new gate belongs to site
     if (gateId && targetSiteId) {
-      const site = await Site.findOne({ _id: targetSiteId, "gates._id": gateId });
+      const site = await SiteModel(req).findOne({ _id: targetSiteId, "gates._id": gateId });
       if (!site) {
         return res.status(400).json({ message: "gateId does not exist on this site" });
       }
