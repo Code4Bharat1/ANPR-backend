@@ -6,12 +6,13 @@ import AuditLog from "../models/AuditLog.model.js";
 import SuperAdmin from "../models/superadmin.model.js";
 import AppSettings from "../models/AppSettings.model.js";
 import Notification from "../models/Notification.model.js";
-import { PLANS } from "../config/plans.js"; 
+import { PLANS } from "../config/plans.js";
 import { comparePassword, hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 import mongoose from "mongoose";
 import { encrypt } from "../utils/encryption.util.js";
 import { invalidateTenantCache } from "../config/tenantDB.js";
+import CreditLedgerModel from "../models/CreditLedger.model.js";
 /* ======================================================
    DASHBOARD - Updated for Device Model with devicetype field
 ====================================================== */
@@ -163,12 +164,12 @@ export const dashboardOverview = async (req, res, next) => {
     // Offline Devices List (for monitoring)
     const offlineDevicesList = await Device.find(
       { isOnline: false },
-      { 
-        deviceName: 1, 
-        serialNo: 1, 
+      {
+        deviceName: 1,
+        serialNo: 1,
         devicetype: 1,
-        siteId: 1, 
-        lastActive: 1, 
+        siteId: 1,
+        lastActive: 1,
         ipAddress: 1,
         isEnabled: 1
       }
@@ -184,7 +185,7 @@ export const dashboardOverview = async (req, res, next) => {
     // Today's Activity
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-    
+
     const todayTrips = await Trip.countDocuments({
       createdAt: { $gte: todayStart },
     });
@@ -192,7 +193,7 @@ export const dashboardOverview = async (req, res, next) => {
     // Recent Activity (last 24 hours)
     const last24Hours = new Date();
     last24Hours.setHours(last24Hours.getHours() - 24);
-    
+
     const recentTrips = await Trip.countDocuments({
       createdAt: { $gte: last24Hours },
     });
@@ -214,12 +215,12 @@ export const dashboardOverview = async (req, res, next) => {
           expired: expiredClients,
           activePercentage: totalClients ? ((activeClients / totalClients) * 100).toFixed(1) : 0,
         },
-        
+
         // Site Overview
         sites: {
           total: totalSites,
         },
-        
+
         // Device Overview
         devices: {
           total: totalDevices,
@@ -230,20 +231,20 @@ export const dashboardOverview = async (req, res, next) => {
           byType: deviceTypeStats,
           offlineDevices: offlineDevicesList,
         },
-        
+
         // Credit Management
         credits: creditStats,
-        
+
         // Operations
         operations: {
           todayTrips,
           recentTrips,
           recentDeviceActivations,
         },
-        
+
         // System Health
         systemHealth,
-        
+
         // Timestamp
         lastUpdated: new Date(),
       },
@@ -263,32 +264,32 @@ async function getCreditStatistics() {
     // Get ALL clients (not just those with creditBalance field)
     const allClients = await Client.find(
       {},
-      { 
-        companyName: 1, 
-        clientname: 1, 
-        creditBalance: 1, 
+      {
+        companyName: 1,
+        clientname: 1,
+        creditBalance: 1,
         creditThreshold: 1,
         isActive: 1
       }
     ).sort({ creditBalance: -1 });
 
     // Filter clients that actually have creditBalance (including zero)
-    const clientsWithCredits = allClients.filter(client => 
+    const clientsWithCredits = allClients.filter(client =>
       client.creditBalance !== undefined && client.creditBalance !== null
     );
-    
+
     // Calculate totals
     const totalCredits = clientsWithCredits.reduce((sum, client) => sum + (client.creditBalance || 0), 0);
-    
+
     // Clients below threshold (only if threshold is set)
     const clientsBelowThreshold = clientsWithCredits.filter(
       client => client.creditThreshold && client.creditBalance <= client.creditThreshold
     ).length;
-    
+
     const clientsWithLowCredits = clientsWithCredits.filter(
       client => client.creditBalance > 0 && client.creditBalance <= 100
     ).length;
-    
+
     const clientsWithNoCredits = clientsWithCredits.filter(
       client => client.creditBalance === 0
     ).length;
@@ -296,8 +297,8 @@ async function getCreditStatistics() {
     // Get recent top-ups (last 30 days)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
-    const recentTopups = await CreditLedger.find({
+
+    const recentTopups = await CreditLedgerModel.find({
       eventType: "TOPUP",
       createdAt: { $gte: thirtyDaysAgo }
     })
@@ -367,11 +368,11 @@ async function getCreditStatistics() {
 function assessSystemHealth(deviceTypeStats, creditStats) {
   const issues = [];
   let status = "Operational";
-  
+
   // Check device health
   const totalDevices = Object.values(deviceTypeStats).reduce((sum, type) => sum + type.total, 0);
   const offlineDevices = Object.values(deviceTypeStats).reduce((sum, type) => sum + type.offline, 0);
-  
+
   if (totalDevices > 0) {
     const offlinePercentage = (offlineDevices / totalDevices) * 100;
     if (offlinePercentage > 30) {
@@ -381,7 +382,7 @@ function assessSystemHealth(deviceTypeStats, creditStats) {
       issues.push(`${offlinePercentage.toFixed(1)}% of devices are offline`);
     }
   }
-  
+
   // Check credit health
   if (creditStats.clientsBelowThreshold > 0) {
     issues.push(`${creditStats.clientsBelowThreshold} clients have credits below threshold`);
@@ -389,21 +390,21 @@ function assessSystemHealth(deviceTypeStats, creditStats) {
       status = "Degraded";
     }
   }
-  
+
   if (creditStats.clientsWithNoCredits > 0) {
     issues.push(`${creditStats.clientsWithNoCredits} clients have zero credits`);
     status = "Degraded";
   }
-  
+
   // Check specific device types
   if (deviceTypeStats.ANPR.offline > deviceTypeStats.ANPR.total * 0.3) {
     issues.push("High number of ANPR cameras offline");
   }
-  
+
   if (deviceTypeStats.BIOMETRIC.offline > deviceTypeStats.BIOMETRIC.total * 0.3) {
     issues.push("High number of biometric devices offline");
   }
-  
+
   return {
     status,
     issues: issues.length > 0 ? issues : ["All systems operational"],
@@ -473,9 +474,9 @@ export const getDashboardStats = async (req, res, next) => {
 export const getDeviceHealthDetails = async (req, res, next) => {
   try {
     const deviceTypes = ["ANPR", "TOP_CAMERA", "BIOMETRIC", "OVERVIEW"];
-    
+
     const deviceHealth = {};
-    
+
     for (const type of deviceTypes) {
       const [total, online, offline, enabled] = await Promise.all([
         Device.countDocuments({ devicetype: type }),
@@ -483,7 +484,7 @@ export const getDeviceHealthDetails = async (req, res, next) => {
         Device.countDocuments({ devicetype: type, isOnline: false }),
         Device.countDocuments({ devicetype: type, isEnabled: true }),
       ]);
-      
+
       deviceHealth[type] = {
         total,
         online,
@@ -492,7 +493,7 @@ export const getDeviceHealthDetails = async (req, res, next) => {
         healthPercentage: total ? ((online / total) * 100).toFixed(1) : 100,
       };
     }
-    
+
     // Get devices that need attention
     const criticalDevices = await Device.find({
       $or: [
@@ -504,7 +505,7 @@ export const getDeviceHealthDetails = async (req, res, next) => {
       .populate("clientId", "companyName")
       .sort({ lastActive: 1 })
       .limit(20);
-    
+
     res.json({
       success: true,
       data: {
@@ -533,7 +534,7 @@ export const getDeviceHealthDetails = async (req, res, next) => {
 export const getCreditDashboard = async (req, res, next) => {
   try {
     const creditStats = await getCreditStatistics();
-    
+
     // Get clients with critical credit status
     const criticalClients = await Client.find({
       $expr: { $lte: ["$creditBalance", "$creditThreshold"] }
@@ -541,18 +542,18 @@ export const getCreditDashboard = async (req, res, next) => {
       .select("companyName clientname creditBalance creditThreshold packageEnd isActive")
       .sort({ creditBalance: 1 })
       .limit(20);
-    
+
     // Get recent transactions
     const recentTransactions = await CreditLedger.find()
       .sort({ createdAt: -1 })
       .limit(50)
       .populate("clientId", "companyName clientname")
       .populate("performedBy", "name email");
-    
+
     // Calculate trends (last 7 days)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    
+
     const dailyTopups = await CreditLedger.aggregate([
       {
         $match: {
@@ -573,14 +574,14 @@ export const getCreditDashboard = async (req, res, next) => {
       },
       { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } }
     ]);
-    
+
     res.json({
       success: true,
       data: {
         overview: {
           totalCredits: creditStats.totalCredits,
           clientsWithCredits: creditStats.clientsWithCredits,
-          averageBalance: creditStats.clientsWithCredits ? 
+          averageBalance: creditStats.clientsWithCredits ?
             (creditStats.totalCredits / creditStats.clientsWithCredits).toFixed(2) : 0,
         },
         alerts: {
@@ -627,28 +628,28 @@ export const analyticsSummary = async (req, res, next) => {
       previousTrips,
       previousClients
     ] = await Promise.all([
-      Trip.countDocuments({ 
-        createdAt: { $gte: from, $lte: to } 
+      Trip.countDocuments({
+        createdAt: { $gte: from, $lte: to }
       }),
-      Client.countDocuments({ 
+      Client.countDocuments({
         createdAt: { $lte: to },
-        isActive: true 
+        isActive: true
       }),
-      Site.countDocuments({ 
-        createdAt: { $lte: to } 
+      Site.countDocuments({
+        createdAt: { $lte: to }
       }),
-      Device.countDocuments({ 
-        createdAt: { $lte: to } 
+      Device.countDocuments({
+        createdAt: { $lte: to }
       }),
-      Trip.countDocuments({ 
-        createdAt: { 
-          $gte: previousPeriod.from, 
-          $lte: previousPeriod.to 
-        } 
+      Trip.countDocuments({
+        createdAt: {
+          $gte: previousPeriod.from,
+          $lte: previousPeriod.to
+        }
       }),
-      Client.countDocuments({ 
+      Client.countDocuments({
         createdAt: { $lte: previousPeriod.to },
-        isActive: true 
+        isActive: true
       })
     ]);
 
@@ -715,7 +716,7 @@ export const analyticsSummary = async (req, res, next) => {
       totalSites,
       totalDevices,
       totalRevenue: 0,
-      growth: { 
+      growth: {
         trips: tripsGrowth,
         clients: clientsGrowth
       },
@@ -740,9 +741,9 @@ const calculateGrowth = (current, previous) => {
 const getDateRange = (period = "7d") => {
   const now = new Date();
   const to = new Date(now); // End date is current time
-  
+
   let from = new Date(now);
-  
+
   // Set to date to end of day
   to.setHours(23, 59, 59, 999);
 
@@ -851,13 +852,13 @@ export const clientDistribution = async (req, res, next) => {
 
     const dist = await Client.aggregate([
       { $match: { createdAt: { $gte: from, $lte: to } } },
-      { 
-        $group: { 
-          _id: { 
-            $ifNull: ["$packageType", "Not Specified"] 
-          }, 
-          count: { $sum: 1 } 
-        } 
+      {
+        $group: {
+          _id: {
+            $ifNull: ["$packageType", "Not Specified"]
+          },
+          count: { $sum: 1 }
+        }
       }
     ]);
 
@@ -895,10 +896,10 @@ export const revenueAnalytics = async (req, res, next) => {
       { $sort: { _id: 1 } }
     ]);
 
-    res.json(revenueData.map(d => ({ 
-      date: d._id, 
+    res.json(revenueData.map(d => ({
+      date: d._id,
       revenue: d.revenue || 0,
-      trips: d.trips 
+      trips: d.trips
     })));
   } catch (e) {
     next(e);
@@ -1206,8 +1207,8 @@ export const createDevice = async (req, res) => {
       if (normalizedType === "TOP_CAMERA") arrayFields.push("topCameraDevices");
       if (normalizedType === "ANPR") {
         const r = role?.toUpperCase();
-        if (r === "ENTRY")      arrayFields.push("entryDevices");
-        if (r === "EXIT")       arrayFields.push("exitDevices");
+        if (r === "ENTRY") arrayFields.push("entryDevices");
+        if (r === "EXIT") arrayFields.push("exitDevices");
         if (r === "ENTRY_EXIT") arrayFields.push("entryDevices", "exitDevices");
       }
       if (arrayFields.length) {
@@ -1279,7 +1280,7 @@ export const toggleDevice = async (req, res, next) => {
 
     const formatted = {
       _id: device._id,
-        name: device.deviceName || device.serialNo, // ✅ Change
+      name: device.deviceName || device.serialNo, // ✅ Change
       deviceId: device.serialNo,
       type: device.devicetype,
       status: device.isOnline ? "online" : "offline",
@@ -1307,7 +1308,7 @@ export const getDeviceById = async (req, res, next) => {
 
     const formattedDevice = {
       _id: device._id,
-        name: device.deviceName || device.serialNo, // ✅ Change
+      name: device.deviceName || device.serialNo, // ✅ Change
       deviceId: device.serialNo,
       type: device.devicetype,
       status: device.isOnline ? "online" : "offline",
@@ -1646,7 +1647,7 @@ export const updatePlanOverride = async (req, res, next) => {
     // User limit overrides
     if (userLimits && typeof userLimits === "object") {
       updateData.userLimits = {
-        pm:         userLimits.pm         != null ? Number(userLimits.pm)         : client.userLimits?.pm,
+        pm: userLimits.pm != null ? Number(userLimits.pm) : client.userLimits?.pm,
         supervisor: userLimits.supervisor != null ? Number(userLimits.supervisor) : client.userLimits?.supervisor,
       };
     }

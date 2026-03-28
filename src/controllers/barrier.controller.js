@@ -13,7 +13,7 @@
 import { sendToAgentAndWait } from "../agent/agent.socket.js";
 import BarrierEvent from "../models/BarrierEvent.model.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
-
+import Site from "../models/Site.model.js";
 /* ======================================================
    HELPER — persist a BarrierEvent after every command
 ====================================================== */
@@ -201,6 +201,65 @@ export async function getBarrierStatus(req, res) {
       trigger: last.trigger,
       lastUpdated: last.createdAt,
     });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+
+export async function getAllBarrierStatus(req, res) {
+  try {
+    const clientId = req.user?.clientId;
+
+    if (!clientId) {
+      return res.status(400).json({ success: false, message: "clientId required" });
+    }
+
+    // Client ke saare sites fetch karo
+    const sites = await Site.find({ clientId }).select('_id name').lean();
+
+    if (!sites.length) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const siteIds = sites.map(s => s._id);
+
+    // Har site ka latest BarrierEvent ek query mein nikalo
+    const latestEvents = await BarrierEvent.aggregate([
+      { $match: { siteId: { $in: siteIds } } },
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id: "$siteId",
+          state:      { $first: "$state" },
+          action:     { $first: "$action" },
+          trigger:    { $first: "$trigger" },
+          lastUpdated:{ $first: "$createdAt" },
+        }
+      }
+    ]);
+
+    // Map siteId → latest event
+    const eventMap = {};
+    latestEvents.forEach(e => {
+      eventMap[e._id.toString()] = e;
+    });
+
+    // Har site ko response mein merge karo
+    const data = sites.map(site => {
+      const event = eventMap[site._id.toString()];
+      return {
+        siteId:      site._id,
+        siteName:    site.name,
+        state:       event?.state       || 'UNKNOWN',
+        action:      event?.action      || null,
+        trigger:     event?.trigger     || null,
+        lastUpdated: event?.lastUpdated || null,
+      };
+    });
+
+    return res.json({ success: true, data });
+
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }

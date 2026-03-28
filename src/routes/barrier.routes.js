@@ -7,13 +7,14 @@ import {
   openBarrier,
   closeBarrier,
   getBarrierStatus,
+  getAllBarrierStatus,
 } from "../controllers/barrier.controller.js";
 
 const router = express.Router();
 
 const barrierGuard = [
   verifyAccessToken,
-  authorizeRoles("supervisor", "project_manager", "admin"),
+  authorizeRoles("supervisor", "project_manager", "admin","client"),
   checkFeatureFlag("barrierAutomation"),
 ];
 
@@ -30,8 +31,15 @@ router.post("/close", ...barrierGuard, closeBarrier);
 router.get(
   "/status",
   verifyAccessToken,
-  authorizeRoles("supervisor", "project_manager", "admin"),
+  authorizeRoles("supervisor", "project_manager", "admin","client"),
   getBarrierStatus
+);
+// FR-5.4 Extended: All sites barrier status for client admin
+router.get(
+  "/status/all",
+  verifyAccessToken,
+  authorizeRoles("admin", "client"),
+  getAllBarrierStatus
 );
 
 export default router;
