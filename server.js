@@ -22,6 +22,7 @@ import uploadRoutes from "./src/routes/upload.routes.js";
 import plateRoutes from "./src/routes/plate.routes.js";
 import barrierRoutes from "./src/routes/barrier.routes.js";
 import creditRoutes from "./src/routes/credit.routes.js";
+import aiAnalyticsRoutes from "./src/routes/aiAnalytics.routes.js";
 // Models
 import Trip from "./src/models/Trip.model.js";
 import AuditLog from "./src/models/AuditLog.model.js";
@@ -256,6 +257,7 @@ app.use("/api/uploads", uploadRoutes);
 app.use("/api/plate", plateRoutes);
 app.use("/api/barrier", barrierRoutes);
 app.use("/api/credits", creditRoutes);
+app.use("/api/ai-analytics", aiAnalyticsRoutes);
 
 const DEFAULT_CAMERA_IP =
   "192.168.0.100";

@@ -1,0 +1,564 @@
+{
+    "info": {
+        "name": "ANPR — AI Analytics",
+        "_postman_id": "ai-analytics-collection",
+        "description": "Tests for POST /api/ai-analytics/query. Run '01 Login' first — the collection auto-saves the token and reuses it in all subsequent requests.",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:5000",
+            "type": "string"
+        },
+        {
+            "key": "accessToken",
+            "value": "",
+            "type": "string"
+        }
+    ],
+    "item": [
+        {
+            "name": "01 Login (saves token)",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "const json = pm.response.json();",
+                            "if (json.accessToken) {",
+                            "  pm.collectionVariables.set('accessToken', json.accessToken);",
+                            "  pm.test('Login OK — token saved', () => pm.response.to.have.status(200));",
+                            "} else {",
+                            "  pm.test('Login FAILED — check credentials', () => { throw new Error(JSON.stringify(json)); });",
+                            "}"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ],
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"identifier\": \"abhijeet@anpr.com\",\n  \"password\": \"12345678\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/auth/login",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "auth",
+                        "login"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "02 Trip count — today",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                            "pm.test('Has answer', () => {",
+                            "  const j = pm.response.json();",
+                            "  pm.expect(j.success).to.be.true;",
+                            "  pm.expect(j.answer).to.be.a('string');",
+                            "});"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ],
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{accessToken}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"question\": \"How many vehicles transacted today?\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/ai-analytics/query",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "ai-analytics",
+                        "query"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "03 Active vehicles right now",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                            "pm.test('Has count', () => {",
+                            "  const j = pm.response.json();",
+                            "  pm.expect(j.data).to.have.property('count');",
+                            "});"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ],
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{accessToken}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"question\": \"Which vehicles are currently inside the premises?\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/ai-analytics/query",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "ai-analytics",
+                        "query"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "04 Trip count — specific date",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{accessToken}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"question\": \"How many vehicles entered on 25th March 2026?\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/ai-analytics/query",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "ai-analytics",
+                        "query"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "05 Trip list — last 7 days",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{accessToken}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"question\": \"Show me all trips from the last 7 days\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/ai-analytics/query",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "ai-analytics",
+                        "query"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "06 Overstay vehicles",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{accessToken}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"question\": \"Are there any vehicles overstaying right now?\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/ai-analytics/query",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "ai-analytics",
+                        "query"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "07 Site-wise summary — this month",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{accessToken}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"question\": \"Give me a site-wise breakdown of trips this month\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/ai-analytics/query",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "ai-analytics",
+                        "query"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "08 Vendor trips",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{accessToken}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"question\": \"How many trips did each vendor make this week?\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/ai-analytics/query",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "ai-analytics",
+                        "query"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "09 Load status breakdown",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{accessToken}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"question\": \"How many full load vs empty load vehicles came in this month?\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/ai-analytics/query",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "ai-analytics",
+                        "query"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "10 Barrier events today",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{accessToken}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"question\": \"Show me all barrier open events from today\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/ai-analytics/query",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "ai-analytics",
+                        "query"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "11 Vehicle lookup by plate",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{accessToken}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"question\": \"Find vehicle MH12AB1234\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/ai-analytics/query",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "ai-analytics",
+                        "query"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "12 Completed trips — yesterday",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{accessToken}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"question\": \"How many vehicles exited yesterday?\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/ai-analytics/query",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "ai-analytics",
+                        "query"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "13 Feature flag denied (non-ENTERPRISE test)",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "// If client is ENTERPRISE this returns 200.",
+                            "// If client is LITE/CORE/PRO it should return 403 FEATURE_NOT_IN_PLAN.",
+                            "pm.test('Either 200 (ENTERPRISE) or 403 (lower plan)', () => {",
+                            "  pm.expect([200, 403]).to.include(pm.response.code);",
+                            "});"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ],
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{accessToken}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"question\": \"Total trips last 30 days\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/ai-analytics/query",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "ai-analytics",
+                        "query"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "14 Missing question — validation error",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "pm.test('Returns 400', () => pm.response.to.have.status(400));"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ],
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{accessToken}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/ai-analytics/query",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "ai-analytics",
+                        "query"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "15 No token — unauthorized",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "pm.test('Returns 401', () => pm.response.to.have.status(401));"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ],
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"question\": \"How many trips today?\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/ai-analytics/query",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "ai-analytics",
+                        "query"
+                    ]
+                }
+            }
+        }
+    ]
+}
