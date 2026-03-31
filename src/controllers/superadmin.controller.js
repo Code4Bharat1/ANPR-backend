@@ -6,12 +6,17 @@ import AuditLog from "../models/AuditLog.model.js";
 import SuperAdmin from "../models/superadmin.model.js";
 import AppSettings from "../models/AppSettings.model.js";
 import Notification from "../models/Notification.model.js";
+import ProjectManager from "../models/ProjectManager.model.js";
+import Supervisor from "../models/supervisor.model.js";
+import Vendor from "../models/Vendor.model.js";
+import Vehicle from "../models/Vehicle.model.js";
+import BarrierEvent from "../models/BarrierEvent.model.js";
 import { PLANS } from "../config/plans.js";
 import { comparePassword, hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 import mongoose from "mongoose";
 import { encrypt } from "../utils/encryption.util.js";
-import { invalidateTenantCache } from "../config/tenantDB.js";
+import { invalidateTenantCache, getConnection } from "../config/tenantDB.js";
 import CreditLedgerModel from "../models/CreditLedger.model.js";
 /* ======================================================
    DASHBOARD - Updated for Device Model with devicetype field
@@ -1847,6 +1852,76 @@ export const deprovisionDedicatedDB = async (req, res, next) => {
       success: true,
       message: "Client reverted to shared DB",
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/* ======================================================
+   MIGRATE EXISTING DATA TO DEDICATED DB
+   POST /api/superadmin/clients/:id/migrate-db
+   Copies all existing tenant data from shared DB → dedicated DB.
+   Safe to run multiple times (uses upsert).
+====================================================== */
+export const migrateClientToDedicatedDB = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const client = await Client.findById(id).lean();
+    if (!client) return res.status(404).json({ message: "Client not found" });
+
+    if (client.dbConfig?.mode !== "dedicated") {
+      return res.status(400).json({ message: "Client does not have a dedicated DB provisioned" });
+    }
+
+    const dedicatedConn = await getConnection(id);
+    if (dedicatedConn === mongoose.connection) {
+      return res.status(500).json({ message: "Could not open dedicated DB connection" });
+    }
+
+    const clientId = new mongoose.Types.ObjectId(id);
+
+    // Models to migrate — all tenant-scoped collections
+    const migrations = [
+      { name: "Site",           Model: Site,         query: { clientId } },
+      { name: "Device",         Model: Device,        query: { clientId } },
+      { name: "ProjectManager", Model: ProjectManager, query: { clientId } },
+      { name: "Supervisor",     Model: Supervisor,    query: { clientId } },
+      { name: "Vendor",         Model: Vendor,        query: { clientId } },
+      { name: "Vehicle",        Model: Vehicle,       query: { clientId } },
+      { name: "Trip",           Model: Trip,          query: { clientId } },
+      { name: "BarrierEvent",   Model: BarrierEvent,  query: { clientId } },
+    ];
+
+    const results = {};
+
+    for (const { name, Model, query } of migrations) {
+      try {
+        const docs = await Model.find(query).lean();
+        if (docs.length === 0) { results[name] = { migrated: 0 }; continue; }
+
+        const TargetModel = dedicatedConn.model(name);
+        let migrated = 0;
+
+        for (const doc of docs) {
+          await TargetModel.findByIdAndUpdate(doc._id, doc, { upsert: true, new: true });
+          migrated++;
+        }
+
+        results[name] = { migrated };
+      } catch (err) {
+        results[name] = { error: err.message };
+      }
+    }
+
+    await logAudit({
+      req,
+      action: "MIGRATE_DB",
+      module: "CLIENT",
+      newValue: { clientId: id, results },
+    });
+
+    return res.json({ success: true, message: "Migration complete", results });
   } catch (err) {
     next(err);
   }

@@ -1,7 +1,7 @@
 
 
 import express from "express";
-import { verifyAccessToken } from "../middlewares/auth.middleware.js";
+import { verifyAccessToken, resolveTenantDB } from "../middlewares/auth.middleware.js";
 import { authorizeRoles } from "../middlewares/role.middleware.js";
 import {
   createClient,
@@ -36,6 +36,8 @@ import Device from "../models/Device.model.js";
 import ProjectManagerModel from "../models/ProjectManager.model.js";
 import SupervisorModel from "../models/supervisor.model.js";
 const router = express.Router();
+
+router.use(verifyAccessToken, resolveTenantDB);
 
 // FR-9: Plan info — returns current limits, usage, and feature flags for the client
 router.get(

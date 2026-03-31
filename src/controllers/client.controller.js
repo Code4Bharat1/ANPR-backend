@@ -13,6 +13,12 @@ import { logAudit } from "../middlewares/audit.middleware.js";
 import ExcelJS from 'exceljs';
 import { PLANS } from "../config/plans.js";
 import mongoose from "mongoose";
+
+function PMModel(req)         { return req?.db ? req.db.model("ProjectManager") : ProjectManager; }
+function SuperModel(req)      { return req?.db ? req.db.model("Supervisor")     : Supervisor; }
+function SiteModel(req)       { return req?.db ? req.db.model("Site")           : Site; }
+function DeviceModel(req)     { return req?.db ? req.db.model("Device")         : Device; }
+function TripModel(req)       { return req?.db ? req.db.model("Trip")           : Trip; }
 /* ------------------ CREATE CLIENT ------------------ */
 export const createClient = async (req, res, next) => {
   try {
@@ -139,7 +145,7 @@ export const getClientDashboard = async (req, res, next) => {
     /* =========================
        FETCH SITES FIRST
     ========================= */
-    const sites = await Site.find({ clientId })
+    const sites = await SiteModel(req).find({ clientId })
       .select("_id name isActive")
       .lean();
 
@@ -232,7 +238,7 @@ export const getClientDashboard = async (req, res, next) => {
     /* =========================
        RECENT ACTIVITY
     ========================= */
-    const recentActivity = await Trip.find({ clientId })
+    const recentActivity = await TripModel(req).find({ clientId })
       .sort({ createdAt: -1 })
       .limit(10)
       .populate("siteId", "name")
@@ -304,7 +310,7 @@ export const createProjectManager = async (req, res, next) => {
   try {
     const { name, email, mobile, password, assignedSites, address = [] } = req.body;
 
-    const pm = await ProjectManager.create({
+    const pm = await PMModel(req).create({
       name,
       email: email.toLowerCase().trim(),
       mobile,
@@ -318,7 +324,7 @@ export const createProjectManager = async (req, res, next) => {
 
     // 🔥 IMPORTANT: Update sites with this PM
     if (assignedSites.length > 0) {
-      await Site.updateMany(
+      await SiteModel(req).updateMany(
         { _id: { $in: assignedSites } },
         { $addToSet: { projectManagers: pm._id } }
       );
@@ -339,7 +345,7 @@ export const getProjectManagers = async (req, res, next) => {
   try {
     const clientId = req.user.clientId;
 
-    const projectManagers = await ProjectManager.find({ clientId })
+    const projectManagers = await PMModel(req).find({ clientId })
       .select("-password")                 // 🔐 never expose password
       .populate("assignedSites", "name")   // optional
       .populate("supervisors", "name")   // optional
@@ -365,7 +371,7 @@ export const updateProjectManager = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid Project Manager ID" });
     }
 
-    const pm = await ProjectManager.findById(id);
+    const pm = await PMModel(req).findById(id);
     if (!pm) {
       return res.status(404).json({ message: "Project Manager not found" });
     }
@@ -434,19 +440,19 @@ export const deleteProjectManager = async (req, res, next) => {
     const { id } = req.params;
 
     // 1️⃣ Remove PM from all sites
-    await Site.updateMany(
+    await SiteModel(req).updateMany(
       { projectManagers: id },
       { $pull: { projectManagers: id } }
     );
 
     // 2️⃣ Remove PM from trips (optional)
-    await Trip.updateMany(
+    await TripModel(req).updateMany(
       { projectManagerId: id },
       { $set: { projectManagerId: null } }
     );
 
     // 3️⃣ Delete PM
-    await ProjectManager.findByIdAndDelete(id);
+    await PMModel(req).findByIdAndDelete(id);
 
     res.json({ message: "Project Manager deleted successfully" });
   } catch (err) {
@@ -458,19 +464,19 @@ export const deleteSupervisor = async (req, res, next) => {
     const { id } = req.params;
 
     // 1️⃣ Remove supervisor from sites
-    await Site.updateMany(
+    await SiteModel(req).updateMany(
       { supervisors: id },
       { $pull: { supervisors: id } }
     );
 
     // 2️⃣ Remove supervisor from trips
-    await Trip.updateMany(
+    await TripModel(req).updateMany(
       { createdBy: id },
       { $set: { createdBy: null } }
     );
 
     // 3️⃣ Delete supervisor
-    await Supervisor.findByIdAndDelete(id);
+    await SuperModel(req).findByIdAndDelete(id);
 
     res.json({ message: "Supervisor deleted successfully" });
   } catch (err) {
@@ -572,7 +578,7 @@ export const togglePMStatus = async (req, res, next) => {
       return res.status(401).json({ message: "Authentication failed" });
     }
 
-    const user = await ProjectManager.findOne({
+    const user = await PMModel(req).findOne({
       _id: id,
     });
 
@@ -602,7 +608,7 @@ export const toggleSupervisor = async (req, res, next) => {
       return res.status(401).json({ message: "Authentication failed" });
     }
 
-    const updatedSupervisor = await Supervisor.findOneAndUpdate(
+    const updatedSupervisor = await SuperModel(req).findOneAndUpdate(
       { _id: id, clientId: req.user.clientId },
       {
         $set: {
@@ -647,7 +653,7 @@ export const toggleSupervisor = async (req, res, next) => {
 
 
 export const toggleUser = async (req, res) => {
-  const user = await ProjectManager.findById(req.params.id);
+  const user = await PMModel(req).findById(req.params.id);
   user.isActive = !user.isActive;
   await user.save();
   res.json(user);

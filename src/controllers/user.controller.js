@@ -4,6 +4,9 @@ import Supervisor from "../models/supervisor.model.js";
 import { hashPassword } from "../utils/hash.util.js";
 import { logAudit } from "../middlewares/audit.middleware.js";
 
+function PMModel(req)    { return req?.db ? req.db.model("ProjectManager") : ProjectManager; }
+function SuperModel(req) { return req?.db ? req.db.model("Supervisor")     : Supervisor; }
+
 /**
  * SuperAdmin creates Admin for a client
  */
@@ -34,7 +37,7 @@ export const createProjectManager = async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
 
-    const pm = await ProjectManager.create({
+    const pm = await PMModel(req).create({
       name,
       email,
       password: await hashPassword(password),
@@ -60,7 +63,7 @@ export const createSupervisor = async (req, res, next) => {
     // If PM creating, force projectManagerId = self
     const pmId = req.user.role === "project_manager" ? req.user.id : projectManagerId;
 
-    const supervisor = await Supervisor.create({
+    const supervisor = await SuperModel(req).create({
       name,
       email,
       password: await hashPassword(password),
@@ -81,8 +84,8 @@ export const listUsers = async (req, res, next) => {
   try {
     const clientId = req.user.clientId;
 
-    const pms = await ProjectManager.find({ clientId }).select("-password").sort({ createdAt: -1 });
-    const supervisors = await Supervisor.find({ clientId }).select("-password").sort({ createdAt: -1 });
+    const pms = await PMModel(req).find({ clientId }).select("-password").sort({ createdAt: -1 });
+    const supervisors = await SuperModel(req).find({ clientId }).select("-password").sort({ createdAt: -1 });
     const admins = await Admin.find({ clientId }).select("-password").sort({ createdAt: -1 });
 
     res.json({ admins, projectManagers: pms, supervisors });
@@ -94,7 +97,7 @@ export const listUsers = async (req, res, next) => {
 export const toggleSupervisor = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const sup = await Supervisor.findById(id);
+    const sup = await SuperModel(req).findById(id);
     if (!sup) return res.status(404).json({ message: "Supervisor not found" });
 
     if (String(sup.clientId) !== String(req.user.clientId)) return res.status(403).json({ message: "Forbidden" });

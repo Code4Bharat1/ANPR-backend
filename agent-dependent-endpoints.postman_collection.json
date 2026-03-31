@@ -1,0 +1,655 @@
+{
+    "info": {
+        "name": "ANPR — Agent-Dependent Endpoints",
+        "description": "Tests for endpoints that require a connected Raspberry Pi agent (WebSocket). Agent must be registered before running barrier commands.\n\nPrerequisite: Agent connected and registered for site 6973695459bad622236cae2a (confirmed active).\n\nFlow:\n1. Login → get accessToken (auto-saved to collection variable)\n2. Barrier Login (camera auth handshake)\n3. Open Barrier\n4. Get Barrier Status\n5. Close Barrier (503 expected — agent not yet implemented)\n6. Get All Sites Barrier Status\n7. Vehicle Entry (auto-triggers barrier via triggerBarrierForTrip)\n8. Vehicle Exit",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:5000",
+            "type": "string"
+        },
+        {
+            "key": "accessToken",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "siteId",
+            "value": "6973695459bad622236cae2a",
+            "type": "string"
+        },
+        {
+            "key": "tripId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "vehicleId",
+            "value": "",
+            "type": "string"
+        }
+    ],
+    "item": [
+        {
+            "name": "0. Auth",
+            "item": [
+                {
+                    "name": "Login (Supervisor)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "const json = pm.response.json();",
+                                    "if (json.accessToken) {",
+                                    "  pm.collectionVariables.set('accessToken', json.accessToken);",
+                                    "  console.log('✅ Token saved');",
+                                    "} else {",
+                                    "  console.error('❌ No accessToken in response', json);",
+                                    "}"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"identifier\": \"supervisor@test.com\",\n  \"password\": \"password123\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/auth/login",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "auth",
+                                "login"
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "1. Barrier — Agent Commands",
+            "item": [
+                {
+                    "name": "Barrier Login (camera auth handshake)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                                    "pm.test('Login successful', () => {",
+                                    "  const json = pm.response.json();",
+                                    "  pm.expect(json.success).to.be.true;",
+                                    "  pm.expect(json.message).to.include('successful');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/barrier/login",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "barrier",
+                                "login"
+                            ]
+                        },
+                        "description": "Sends LOGIN_BARRIER to agent → agent authenticates to camera → responds LOGIN_OK.\nNo feature gate. Auth token optional (route has no verifyAccessToken guard)."
+                    }
+                },
+                {
+                    "name": "Open Barrier (manual)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status 200 or 503', () => {",
+                                    "  pm.expect(pm.response.code).to.be.oneOf([200, 503]);",
+                                    "});",
+                                    "",
+                                    "const json = pm.response.json();",
+                                    "",
+                                    "if (pm.response.code === 200) {",
+                                    "  pm.test('Barrier opened', () => {",
+                                    "    pm.expect(json.success).to.be.true;",
+                                    "    pm.expect(json.state).to.eql('OPEN');",
+                                    "    pm.expect(json.message).to.eql('Barrier opened');",
+                                    "    pm.expect(json.timestamp).to.exist;",
+                                    "  });",
+                                    "} else {",
+                                    "  pm.test('503 — agent error or timeout', () => {",
+                                    "    pm.expect(json.success).to.be.false;",
+                                    "    pm.expect(json.state).to.eql('ERROR');",
+                                    "    pm.expect(json.message).to.exist;",
+                                    "  });",
+                                    "}"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"tripId\": null\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/barrier/open",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "barrier",
+                                "open"
+                            ]
+                        },
+                        "description": "FR-5.1 / FR-5.5 — Sends OPEN_BARRIER to agent for the caller's siteId.\nRequires: supervisor/project_manager/admin role + barrierAutomation feature flag.\ntripId is optional — links the BarrierEvent to a trip for audit.\n\nExpected with agent online: 200 { state: 'OPEN' }\nExpected with agent offline: 503 { state: 'ERROR', message: 'Agent offline for site ...' }"
+                    }
+                },
+                {
+                    "name": "Open Barrier — with tripId",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status 200 or 503', () => {",
+                                    "  pm.expect(pm.response.code).to.be.oneOf([200, 503]);",
+                                    "});",
+                                    "const json = pm.response.json();",
+                                    "pm.test('Has state field', () => pm.expect(json.state).to.exist);",
+                                    "pm.test('Has timestamp', () => pm.expect(json.timestamp).to.exist);"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"tripId\": \"6973695459bad622236cae2b\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/barrier/open",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "barrier",
+                                "open"
+                            ]
+                        },
+                        "description": "Same as Open Barrier but with a real tripId to verify the BarrierEvent is linked to the trip."
+                    }
+                },
+                {
+                    "name": "Close Barrier (expects 503 — agent gap)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status 503 (agent CLOSE_BARRIER not implemented)', () => {",
+                                    "  pm.expect(pm.response.code).to.eql(503);",
+                                    "});",
+                                    "const json = pm.response.json();",
+                                    "pm.test('state is ERROR', () => pm.expect(json.state).to.eql('ERROR'));",
+                                    "pm.test('success is false', () => pm.expect(json.success).to.be.false);"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/barrier/close",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "barrier",
+                                "close"
+                            ]
+                        },
+                        "description": "FR-5.2 — Backend is wired but agent does not yet implement CLOSE_BARRIER (action: 'down' gap).\nExpected: 503 { success: false, state: 'ERROR' } — this is correct behaviour, not a bug."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "2. Barrier — Status",
+            "item": [
+                {
+                    "name": "Get Barrier Status (caller's site)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                                    "const json = pm.response.json();",
+                                    "pm.test('success true', () => pm.expect(json.success).to.be.true);",
+                                    "pm.test('state is valid enum', () => {",
+                                    "  pm.expect(json.state).to.be.oneOf(['OPEN', 'CLOSED', 'ERROR', 'UNKNOWN']);",
+                                    "});",
+                                    "if (json.state !== 'UNKNOWN') {",
+                                    "  pm.test('Has action field', () => pm.expect(json.action).to.exist);",
+                                    "  pm.test('Has trigger field', () => pm.expect(json.trigger).to.exist);",
+                                    "  pm.test('Has lastUpdated', () => pm.expect(json.lastUpdated).to.exist);",
+                                    "}"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/barrier/status",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "barrier",
+                                "status"
+                            ]
+                        },
+                        "description": "FR-5.4 — Returns last known BarrierEvent for the caller's siteId (from JWT).\nIf no events recorded yet: { state: 'UNKNOWN', lastUpdated: null }"
+                    }
+                },
+                {
+                    "name": "Get Barrier Status — explicit siteId query param",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                                    "const json = pm.response.json();",
+                                    "pm.test('success true', () => pm.expect(json.success).to.be.true);",
+                                    "pm.test('state present', () => pm.expect(json.state).to.exist);"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/barrier/status?siteId={{siteId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "barrier",
+                                "status"
+                            ],
+                            "query": [
+                                {
+                                    "key": "siteId",
+                                    "value": "{{siteId}}"
+                                }
+                            ]
+                        },
+                        "description": "Same as above but passes siteId explicitly via query param (useful for roles where siteId is not in JWT)."
+                    }
+                },
+                {
+                    "name": "Get All Sites Barrier Status (admin/client)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                                    "const json = pm.response.json();",
+                                    "pm.test('success true', () => pm.expect(json.success).to.be.true);",
+                                    "pm.test('data is array', () => pm.expect(json.data).to.be.an('array'));",
+                                    "if (json.data.length > 0) {",
+                                    "  const first = json.data[0];",
+                                    "  pm.test('Each entry has siteId', () => pm.expect(first.siteId).to.exist);",
+                                    "  pm.test('Each entry has state', () => {",
+                                    "    pm.expect(first.state).to.be.oneOf(['OPEN','CLOSED','ERROR','UNKNOWN']);",
+                                    "  });",
+                                    "}"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/barrier/status/all",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "barrier",
+                                "status",
+                                "all"
+                            ]
+                        },
+                        "description": "FR-5.4 Extended — Returns last BarrierEvent for every site belonging to the caller's clientId.\nRequires admin or client role."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "3. Auto-Barrier via Vehicle Entry/Exit",
+            "item": [
+                {
+                    "name": "Vehicle Entry (auto-triggers barrier)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status 201 or 402 or 409', () => {",
+                                    "  pm.expect(pm.response.code).to.be.oneOf([201, 402, 409]);",
+                                    "});",
+                                    "",
+                                    "const json = pm.response.json();",
+                                    "",
+                                    "if (pm.response.code === 201) {",
+                                    "  pm.test('Trip created', () => pm.expect(json.success).to.be.true);",
+                                    "  pm.test('Has tripId', () => pm.expect(json.tripId).to.exist);",
+                                    "  pm.test('Has creditUsed', () => pm.expect(json.creditUsed).to.eql(2));",
+                                    "  pm.collectionVariables.set('tripId', json.tripId);",
+                                    "  console.log('✅ tripId saved:', json.tripId);",
+                                    "} else if (pm.response.code === 402) {",
+                                    "  pm.test('Insufficient credits', () => {",
+                                    "    pm.expect(json.code).to.eql('INSUFFICIENT_CREDITS');",
+                                    "  });",
+                                    "} else if (pm.response.code === 409) {",
+                                    "  pm.test('Vehicle already inside', () => pm.expect(json.message).to.exist);",
+                                    "}"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"vehicleNumber\": \"TN01AB1234\",\n  \"vehicleType\": \"TIPPER\",\n  \"driverName\": \"Ravi Kumar\",\n  \"driverPhone\": \"9876543210\",\n  \"vendorId\": null,\n  \"entryGate\": \"Main Gate\",\n  \"loadStatus\": \"FULL\",\n  \"countofmaterials\": \"50 bags\",\n  \"purpose\": \"Material delivery\",\n  \"notes\": \"\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/supervisor/vehicles/entry",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "supervisor",
+                                "vehicles",
+                                "entry"
+                            ]
+                        },
+                        "description": "FR-5.6 — Creates a manual trip AND internally calls triggerBarrierForTrip (AUTO_ENTRY trigger).\nBarrier result is fire-and-forget — trip is created even if barrier fails.\nDeducts 2 credits. Blocked if balance < 2 (402).\nBlocked if vehicle already INSIDE (409).\n\nThe tripId is auto-saved to collection variable for use in the exit request."
+                    }
+                },
+                {
+                    "name": "Vehicle Exit (auto-triggers barrier)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status 200 or 400 or 404', () => {",
+                                    "  pm.expect(pm.response.code).to.be.oneOf([200, 400, 404]);",
+                                    "});",
+                                    "if (pm.response.code === 200) {",
+                                    "  const json = pm.response.json();",
+                                    "  pm.test('Exit successful', () => pm.expect(json.success).to.be.true);",
+                                    "  pm.test('Has exitAt', () => pm.expect(json.data?.exitAt).to.exist);",
+                                    "}"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"vehicleId\": \"{{vehicleId}}\",\n  \"exitLoadStatus\": \"EMPTY\",\n  \"returnMaterialType\": \"Sand\",\n  \"papersVerified\": true,\n  \"physicalInspection\": true,\n  \"materialMatched\": true,\n  \"exitNotes\": \"\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/supervisor/vehicles/exit",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "supervisor",
+                                "vehicles",
+                                "exit"
+                            ]
+                        },
+                        "description": "FR-5.6 — Closes an active trip AND internally calls triggerBarrierForTrip (AUTO_EXIT trigger).\nSet {{vehicleId}} collection variable to the vehicleId from the active trip before running.\nBarrier result is fire-and-forget — exit is recorded even if barrier fails."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "4. Error / Edge Cases",
+            "item": [
+                {
+                    "name": "Open Barrier — no auth (expects 401)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status 401', () => pm.response.to.have.status(401));"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/barrier/open",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "barrier",
+                                "open"
+                            ]
+                        },
+                        "description": "Verifies that the barrier open endpoint rejects unauthenticated requests."
+                    }
+                },
+                {
+                    "name": "Get Barrier Status — missing siteId (expects 400)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                                    "const json = pm.response.json();",
+                                    "pm.test('Error message present', () => pm.expect(json.message).to.exist);"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/barrier/status",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "barrier",
+                                "status"
+                            ]
+                        },
+                        "description": "Only triggers 400 if the JWT does not contain a siteId (e.g. admin/client token without siteId). Supervisor tokens include siteId so this returns 200 for them."
+                    }
+                }
+            ]
+        }
+    ]
+}

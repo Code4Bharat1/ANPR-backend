@@ -1,5 +1,5 @@
 import express from "express";
-import { verifyAccessToken } from "../middlewares/auth.middleware.js";
+import { verifyAccessToken, resolveTenantDB } from "../middlewares/auth.middleware.js";
 import { authorizeRoles } from "../middlewares/role.middleware.js";
 import {
   registerDevice,
@@ -20,16 +20,16 @@ const router = express.Router();
 router.post("/register", verifyAccessToken, authorizeRoles("superadmin"), checkDeviceLimit, registerDevice);
 
 // List all devices
-router.get("/", verifyAccessToken, authorizeRoles("superadmin", "admin","client", "project_manager"), listDevices);
+router.get("/", verifyAccessToken, resolveTenantDB, authorizeRoles("superadmin", "admin","client", "project_manager"), listDevices);
 
 // FR-4.4: Heartbeat — agent marks device online (no role restriction, agent uses its own auth)
 router.patch("/:id/heartbeat", verifyAccessToken, heartbeat);
 
 // FR-4.5: Get all devices for a specific gate
-router.get("/by-gate/:siteId/:gateId", verifyAccessToken, authorizeRoles("superadmin", "admin","client", "project_manager", "supervisor"), getDevicesByGate);
+router.get("/by-gate/:siteId/:gateId", verifyAccessToken, resolveTenantDB, authorizeRoles("superadmin", "admin","client", "project_manager", "supervisor"), getDevicesByGate);
 
 // FR-4.5: Assign device to a gate
-router.patch("/:id/assign-gate", verifyAccessToken, authorizeRoles("superadmin", "admin", "client"), assignDeviceToGate);
+router.patch("/:id/assign-gate", verifyAccessToken, resolveTenantDB, authorizeRoles("superadmin", "admin", "client"), assignDeviceToGate);
 
 // Update device (FR-4.1, FR-4.2 — role/gateId/lane)
 router.put("/:id", verifyAccessToken, authorizeRoles("superadmin"), checkDeviceLimitForUpdate, updateDevice);

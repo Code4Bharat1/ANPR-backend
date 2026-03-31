@@ -1,6 +1,7 @@
-// plate.controller.js
 import axios from "axios";
 import Plate from "../models/Plate.model.js";
+
+function PlateModel(req) { return req?.db ? req.db.model("Plate") : Plate; }
 
 export const readPlate = async (req, res) => {
   try {
@@ -82,7 +83,7 @@ export const readPlate = async (req, res) => {
 
     // console.log("💾 Saving to database:", plateData);
 
-    const savedPlate = await Plate.create(plateData);
+    const savedPlate = await PlateModel(req).create(plateData);
 
     // console.log("✅ Saved successfully:", savedPlate._id);
 
@@ -109,7 +110,7 @@ export const readPlate = async (req, res) => {
 };
 export const getAllPlates = async (req, res) => {
   try {
-    const plates = await Plate.find().sort({ createdAt: -1 });
+    const plates = await PlateModel(req).find().sort({ createdAt: -1 });
 
     return res.status(200).json({
       success: true,

@@ -38,10 +38,12 @@ async function persistBarrierEvent({
 }) {
   try {
     const Model = db ? db.model("BarrierEvent") : BarrierEvent;
+    // Normalize empty string to null — Mongoose can't cast "" to ObjectId
+    const normalizedTripId = tripId || null;
     await Model.create({
       siteId,
       clientId,
-      tripId,
+      tripId: normalizedTripId,
       action,
       trigger,
       triggeredBy,
@@ -55,6 +57,16 @@ async function persistBarrierEvent({
 }
 
 /* ======================================================
+   HELPER — get last successful (non-ERROR) barrier state for a site
+====================================================== */
+async function getLastBarrierState(Model, siteId) {
+  const last = await Model.findOne({ siteId, state: { $in: ["OPEN", "CLOSED"] } })
+    .sort({ createdAt: -1 })
+    .lean();
+  return last?.state || null; // null = no known state
+}
+
+/* ======================================================
    FR-5.1 / FR-5.5: OPEN BARRIER (manual)
    POST /api/barrier/open
    Auth: supervisor, project_manager, admin  +  barrierAutomation feature flag
@@ -62,6 +74,19 @@ async function persistBarrierEvent({
 export async function openBarrier(req, res) {
   const { siteId, clientId } = req.user;
   const { tripId = null } = req.body;
+
+  const Model = BarrierEventModel(req);
+
+  // Guard: already open
+  const currentState = await getLastBarrierState(Model, siteId);
+  if (currentState === "OPEN") {
+    return res.status(409).json({
+      success: false,
+      state: "OPEN",
+      message: "Barrier is already open",
+      timestamp: new Date(),
+    });
+  }
 
   let state = "UNKNOWN";
   let errorMessage = null;
@@ -126,6 +151,19 @@ export async function openBarrier(req, res) {
 ====================================================== */
 export async function closeBarrier(req, res) {
   const { siteId, clientId } = req.user;
+
+  const Model = BarrierEventModel(req);
+
+  // Guard: already closed
+  const currentState = await getLastBarrierState(Model, siteId);
+  if (currentState === "CLOSED") {
+    return res.status(409).json({
+      success: false,
+      state: "CLOSED",
+      message: "Barrier is already closed",
+      timestamp: new Date(),
+    });
+  }
 
   let state = "UNKNOWN";
   let errorMessage = null;

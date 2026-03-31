@@ -45,7 +45,7 @@ export async function getConnection(clientId) {
 
   // Fetch client config from the shared DB (Client model always lives there)
   const client = await Client.findById(clientId)
-    .select("dbConfig packageType")
+    .select("+dbConfig.connectionString")
     .lean();
 
   if (!client) return mongoose.connection;
@@ -55,7 +55,10 @@ export async function getConnection(clientId) {
     client.dbConfig?.mode !== "dedicated" ||
     !client.dbConfig?.connectionString
   ) {
-    sharedCache.add(key);
+    // Only cache as shared if mode is explicitly shared (not dedicated with missing URI)
+    if (client.dbConfig?.mode !== "dedicated") {
+      sharedCache.add(key);
+    }
     return mongoose.connection;
   }
 

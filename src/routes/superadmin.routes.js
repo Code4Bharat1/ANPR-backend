@@ -40,6 +40,7 @@ router.patch("/clients/:id/plan-override", ...guard, SA.updatePlanOverride);
 // Dedicated DB provisioning (SRS §10, ENTERPRISE only)
 router.post("/clients/:id/provision-db",   ...guard, SA.provisionDedicatedDB);
 router.delete("/clients/:id/provision-db", ...guard, SA.deprovisionDedicatedDB);
+router.post("/clients/:id/migrate-db",     ...guard, SA.migrateClientToDedicatedDB);
 
 /* ======================================================
    SITE ROUTES
