@@ -1,6 +1,8 @@
+import crypto from "crypto";
 import RefreshToken from "../models/RefreshToken.model.js";
 import { generateAccessToken, generateRefreshToken, verifyRefresh } from "../utils/token.util.js";
 import { comparePassword, hashPassword } from "../utils/hash.util.js";
+import { sendPasswordResetOtp } from "../utils/email.util.js";
 
 // ✅ STATIC MODEL IMPORTS (IMPORTANT)
 import SuperAdmin from "../models/superadmin.model.js";
@@ -293,6 +295,183 @@ export const registerSuperAdmin = async (req, res, next) => {
         role: superAdmin.role,
       },
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+
+/* ======================================================
+   FORGOT PASSWORD — STEP 1: REQUEST OTP (CLIENT ONLY)
+====================================================== */
+export const forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Only look up in Client model — no other roles allowed
+    const client = await Client.findOne({ email: normalizedEmail }).select(
+      "+passwordResetOtp +passwordResetOtpExpiry +passwordResetOtpAttempts"
+    );
+
+    // Explicitly reject non-client emails with a distinct code
+    if (!client || client.isActive === false) {
+      return res.status(404).json({
+        code: "NOT_CLIENT",
+        message: "No active client account found with this email.",
+      });
+    }
+
+    // Rate-limit: block if a valid OTP was sent less than 60 seconds ago
+    if (
+      client.passwordResetOtpExpiry &&
+      client.passwordResetOtpExpiry > new Date(Date.now() + 9 * 60 * 1000)
+    ) {
+      return res.status(429).json({
+        message: "Please wait before requesting another OTP.",
+      });
+    }
+
+    // Generate 6-digit OTP
+    const otp = crypto.randomInt(100000, 999999).toString();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    client.passwordResetOtp = otp;
+    client.passwordResetOtpExpiry = otpExpiry;
+    client.passwordResetOtpAttempts = 0;
+    await client.save();
+
+    await sendPasswordResetOtp(normalizedEmail, otp);
+
+    return res.json({
+      message: "OTP sent successfully.",
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/* ======================================================
+   FORGOT PASSWORD — STEP 2: VERIFY OTP (CLIENT ONLY)
+====================================================== */
+export const verifyOtp = async (req, res, next) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ message: "Email and OTP are required" });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const client = await Client.findOne({ email: normalizedEmail }).select(
+      "+passwordResetOtp +passwordResetOtpExpiry +passwordResetOtpAttempts"
+    );
+
+    if (!client) {
+      return res.status(400).json({ message: "Invalid or expired OTP" });
+    }
+
+    // Check expiry
+    if (!client.passwordResetOtpExpiry || client.passwordResetOtpExpiry < new Date()) {
+      return res.status(400).json({ message: "OTP has expired. Please request a new one." });
+    }
+
+    // Check attempts (max 5)
+    if (client.passwordResetOtpAttempts >= 5) {
+      // Invalidate OTP
+      client.passwordResetOtp = undefined;
+      client.passwordResetOtpExpiry = undefined;
+      client.passwordResetOtpAttempts = 0;
+      await client.save();
+      return res.status(400).json({
+        message: "Too many incorrect attempts. Please request a new OTP.",
+      });
+    }
+
+    if (client.passwordResetOtp !== otp.trim()) {
+      client.passwordResetOtpAttempts += 1;
+      await client.save();
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    // OTP is valid — issue a short-lived reset token (store as OTP field reuse)
+    // We'll use a signed token approach: generate a random token, store its hash
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const resetTokenHash = crypto.createHash("sha256").update(resetToken).digest("hex");
+
+    // Reuse OTP field to store the reset token hash, keep same expiry window (10 min)
+    client.passwordResetOtp = `VERIFIED:${resetTokenHash}`;
+    client.passwordResetOtpAttempts = 0;
+    await client.save();
+
+    return res.json({
+      message: "OTP verified successfully",
+      resetToken, // send plain token to frontend
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/* ======================================================
+   FORGOT PASSWORD — STEP 3: RESET PASSWORD (CLIENT ONLY)
+====================================================== */
+export const resetPassword = async (req, res, next) => {
+  try {
+    const { email, resetToken, newPassword } = req.body;
+
+    if (!email || !resetToken || !newPassword) {
+      return res.status(400).json({
+        message: "Email, reset token, and new password are required",
+      });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        message: "Password must be at least 8 characters long",
+      });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const client = await Client.findOne({ email: normalizedEmail }).select(
+      "+password +passwordResetOtp +passwordResetOtpExpiry +passwordResetOtpAttempts"
+    );
+
+    if (!client) {
+      return res.status(400).json({ message: "Invalid reset request" });
+    }
+
+    // Check expiry
+    if (!client.passwordResetOtpExpiry || client.passwordResetOtpExpiry < new Date()) {
+      return res.status(400).json({ message: "Reset session expired. Please start over." });
+    }
+
+    // Validate reset token
+    const expectedHash = crypto.createHash("sha256").update(resetToken).digest("hex");
+    const storedValue = client.passwordResetOtp || "";
+
+    if (!storedValue.startsWith("VERIFIED:") || storedValue !== `VERIFIED:${expectedHash}`) {
+      return res.status(400).json({ message: "Invalid reset token" });
+    }
+
+    // Update password (pre-save hook will hash it)
+    client.password = newPassword;
+    client.passwordResetOtp = undefined;
+    client.passwordResetOtpExpiry = undefined;
+    client.passwordResetOtpAttempts = 0;
+    await client.save();
+
+    // Invalidate all refresh tokens for this client
+    await RefreshToken.deleteMany({ userId: client._id });
+
+    return res.json({ message: "Password reset successfully. Please log in." });
   } catch (err) {
     next(err);
   }

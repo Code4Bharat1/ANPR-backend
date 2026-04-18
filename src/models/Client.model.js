@@ -155,6 +155,24 @@ const clientSchema = new mongoose.Schema(
     },
 
     /* =====================
+       PASSWORD RESET (OTP)
+       Client-only forgot password flow
+    ===================== */
+    passwordResetOtp: {
+      type: String,
+      select: false,
+    },
+    passwordResetOtpExpiry: {
+      type: Date,
+      select: false,
+    },
+    passwordResetOtpAttempts: {
+      type: Number,
+      default: 0,
+      select: false,
+    },
+
+    /* =====================
        META
     ===================== */
     createdBy: {
